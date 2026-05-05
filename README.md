@@ -36,6 +36,66 @@
 |-------|------|
 | `my_network` | 我的网络（网费余额、设备、套餐） |
 
+## 在 Agent 中安装
+
+### Open Claw
+
+**方式一：克隆到 skills 目录（推荐）**
+
+```bash
+git clone https://github.com/zizhizhou/pku_skills ~/.openclaw/skills/pku_skills
+```
+
+**方式二：克隆到当前工作区**
+
+```bash
+git clone https://github.com/zizhizhou/pku_skills <workspace>/skills/pku_skills
+```
+
+安装完成后，在 Open Claw 中配置凭据（见下方「凭据说明」），重启 Agent 即可使用。
+
+---
+
+### QClaw
+
+QClaw 与 Open Claw 共享 skill 目录格式，安装方式相同：
+
+```bash
+git clone https://github.com/zizhizhou/pku_skills ~/.openclaw/skills/pku_skills
+```
+
+或通过 QClaw Dashboard（`http://localhost:3000`）的 Skills 页面手动加载本地目录。
+
+---
+
+### Hermes Agent
+
+**方式一：通过 URL 直接安装**
+
+```bash
+hermes skills install https://raw.githubusercontent.com/zizhizhou/pku_skills/master/SKILL.md
+```
+
+**方式二：克隆后本地安装**
+
+```bash
+git clone https://github.com/zizhizhou/pku_skills ~/.hermes/skills/pku_skills
+```
+
+**方式三：配置外部 skills 目录**
+
+在 `~/.hermes/config.yaml` 中添加：
+
+```yaml
+skills:
+  external_dirs:
+    - /path/to/pku_skills
+```
+
+---
+
+> 三个平台均读取仓库根目录的 `SKILL.md` 作为技能入口定义。需要登录的功能请先配置 `.env` 凭据文件（见下方「凭据说明」）。
+
 ## 快速上手
 
 ### 安装依赖
