@@ -70,31 +70,35 @@ git clone https://github.com/zizhizhou/pku_skills ~/.openclaw/skills/pku_skills
 
 ### Hermes Agent
 
-**方式一：通过 URL 直接安装**
-
-```bash
-hermes skills install https://raw.githubusercontent.com/zizhizhou/pku_skills/master/SKILL.md
-```
-
-**方式二：克隆后本地安装**
+**必须通过 git clone 安装完整仓库**（仅下载 SKILL.md 会缺少 `src/` 运行目录）：
 
 ```bash
 git clone https://github.com/zizhizhou/pku_skills ~/.hermes/skills/pku_skills
 ```
 
-**方式三：配置外部 skills 目录**
+安装依赖：
+
+```bash
+pip install -r ~/.hermes/skills/pku_skills/requirements.txt
+```
+
+Hermes 读取 SKILL.md 中的 `required_environment_variables`，会在首次调用时提示你输入 `PKU_STUDENT_ID` 和 `PKU_PASSWORD`，凭据仅存本地，不经过任何服务器。
+
+技能中所有命令通过 `${HERMES_SKILL_DIR}` 变量引用安装目录，**无需手动配置路径**，在 macOS / Linux / Windows 上均可直接使用。
+
+**方式二：配置外部 skills 目录**
 
 在 `~/.hermes/config.yaml` 中添加：
 
 ```yaml
 skills:
   external_dirs:
-    - /path/to/pku_skills
+    - ~/path/to/pku_skills
 ```
 
 ---
 
-> 三个平台均读取仓库根目录的 `SKILL.md` 作为技能入口定义。需要登录的功能请先配置 `.env` 凭据文件（见下方「凭据说明」）。
+> 三个平台均通过仓库根目录的 `SKILL.md` 加载技能。需要登录的功能请确保已设置 `PKU_STUDENT_ID` 和 `PKU_PASSWORD` 环境变量或 `.env` 文件。
 
 ## 快速上手
 
