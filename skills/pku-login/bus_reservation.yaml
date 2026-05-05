@@ -1,0 +1,108 @@
+skill_name: 新燕园班车预约
+skill_id: bus_reservation
+category: 北大校内服务
+auth_level: pku-login
+base_url: https://wproc.pku.edu.cn
+request_method: GET
+headers_rule:
+  Referer: https://wproc.pku.edu.cn/v2/reserve/hallView?id=1
+  X-Requested-With: XMLHttpRequest
+session_reuse: true
+
+# ===== 登录要求 =====
+# wproc.pku.edu.cn 使用独立 WprocSession（appId=wproc），不共用门户 SESSION
+# 登录入口：GET https://iaaa.pku.edu.cn/iaaa/oauthlogin.do (appId=wproc)
+# 建议通过 src/pku_session.py::WprocSession.ensure_login() 完成登录
+
+operation_steps:
+  1: |
+    【登录 WprocSession】
+    通过 pku_session.WprocSession().ensure_login(username, password, otp) 完成登录。
+    会话持久化至 .pku_session.json（wproc 段），下次同进程可复用。
+  2: |
+    【查询班车线路列表】
+    GET https://wproc.pku.edu.cn/site/reservation/list-page
+    Params: hall_id=1, time={YYYY-MM-DD}, resource_name=, resource_id=, p=1, page_size=0
+    返回 d.list[]，每项含 id（线路resource_id）和 name（线路名称）。
+    常用线路ID：7=燕园→新燕园, 4=新燕园→燕园, 6=燕园→新燕园→200号, 2=200号→新燕园→燕园
+  3: |
+    【查询指定线路时刻表】
+    GET https://wproc.pku.edu.cn/site/reservation/list-page
+    Params: hall_id=1, time={YYYY-MM-DD}, resource_id={resource_id}, p=1, page_size=0
+    从 d.list[0].table.{resource_id}[] 提取班次，每条含：
+      - yaxis: 时间（如 "07:00"）
+      - time_id: 班次ID（预约时必用）
+      - row.total: 总座位数（=0表示今日不运营）
+      - row.margin: 剩余名额
+      - row.status: 1=可预约，其他=已过期或不可约
+    过滤条件：date == 查询日期 且 total > 0 且 status == 1
+  4: |
+    【预约班次（POST）】
+    POST https://wproc.pku.edu.cn/site/reservation/launch
+    Headers: Referer=https://wproc.pku.edu.cn/v2/reserve/reserveDetail?id={resource_id}
+             X-Requested-With: XMLHttpRequest
+    Body (form-encoded):
+      resource_id={resource_id}
+      code=
+      remarks=
+      deduct_num=
+      data=[{"date":"{YYYY-MM-DD}","period":{time_id},"sub_resource_id":0}]（JSON字符串）
+      position_data=
+    成功响应：{"e":0, "d":{"appointment_id":..., ...}}
+    appointment_id 需保存，用于后续取消。
+  5: |
+    【查看我的预约】
+    GET https://wproc.pku.edu.cn/site/reservation/my-list-time
+    Params: p=1, page_size=10, status=2, sort_time=true, sort=asc
+    返回 d.data[]，每条含：
+      - id: appointment_id
+      - periodList[0].id: hall_appointment_data_id（取消时的 data_id）
+      - periodList[0].yaxis: 班次时间
+  6: |
+    【取消预约（POST）】
+    POST https://wproc.pku.edu.cn/site/reservation/single-time-cancel
+    Headers: Referer=https://wproc.pku.edu.cn/v2/matter/reserveTime
+             X-Requested-With: XMLHttpRequest
+    Body (form-encoded):
+      appointment_id={appointment_id}（来自步骤4响应或步骤5 id字段）
+      data_id={hall_appointment_data_id}（来自步骤5 periodList[0].id）
+    成功响应：{"e":0, "m":"操作成功"}
+
+selectors:
+  route_list: "d.list[].{id: id, name: name}"
+  schedule_slots: "d.list[0].table.{resource_id}[date=={query_date}]"
+  slot_fields: "yaxis(时间) / time_id / row.total / row.margin / row.status"
+  my_reservations: "d.data[].{id, periodList[0].id as data_id, periodList[0].yaxis}"
+
+extra_api:
+  list_page: "https://wproc.pku.edu.cn/site/reservation/list-page"
+  launch: "https://wproc.pku.edu.cn/site/reservation/launch"
+  my_list_time: "https://wproc.pku.edu.cn/site/reservation/my-list-time"
+  cancel_slot: "https://wproc.pku.edu.cn/site/reservation/single-time-cancel"
+
+params_template:
+  date: "预约/查询日期，格式 YYYY-MM-DD（必填）"
+  resource_id: "线路ID（必填）：7=燕园→新燕园, 4=新燕园→燕园, 6=燕园→新燕园→200号, 2=200号→新燕园→燕园"
+  time_id: "班次ID，从时刻表查询结果获取（预约时必填）"
+  appointment_id: "预约ID，从预约响应或我的预约列表获取（取消时必填）"
+  data_id: "hall_appointment_data_id，= periodList[0].id（取消时必填，可从my-list-time自动获取）"
+
+implementation_note: |
+  查询线路: src/pku_portal.py::get_bus_routes()
+  查询时刻: src/pku_portal.py::get_bus_schedule()
+  预约班次: src/pku_portal.py::book_bus()
+  查我的预约: src/pku_portal.py::get_my_bus_reservations()
+  取消预约: src/pku_portal.py::cancel_bus()
+  CLI命令：
+    python src/main.py bus --date {YYYY-MM-DD} --resource-id {id}      # 查时刻表
+    python src/main.py bus-book --time-id {tid} --resource-id {id}     # 预约
+    python src/main.py bus-my                                           # 我的预约
+    python src/main.py bus-cancel --appointment-id {aid}               # 取消（自动查data_id）
+
+exception_strategy: |
+  - WprocSession 未登录/过期：重新执行 ensure_login()，不共用门户 SESSION
+  - total=0：该班次今日不运营，换其他班次
+  - status != 1：班次已过期或已满，换其他班次
+  - 预约失败（e != 0）：返回 m 字段说明原因
+  - 取消失败（e != 0）：确认 appointment_id 和 data_id 是否匹配（data_id 必须是 periodList[0].id）
+  - 接口失效：输出原始错误，不启动 Playwright

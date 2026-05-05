@@ -1,0 +1,99 @@
+skill_name: i看牙（口腔健康服务）查询与预约
+skill_id: dental_service
+category: 北大校内服务
+auth_level: pku-login
+base_url: http://222.29.72.252/
+request_method: POST
+headers_rule:
+  Referer: http://222.29.72.252/
+session_reuse: false（每次 portletRedir 获取新 session_key，有效期约1小时）
+
+# ===== 登录链 =====
+# 此服务运行在内网 IP 222.29.72.252，需在校园网环境下访问
+auth_chain: |
+  1. GET https://portal.pku.edu.cn/portal2017/util/portletRedir.do?portletId=dentistAppointment
+     跟随重定向 → IAAA → http://222.29.72.252/login/iaaaback.html?token={iaaa_token}
+     从最终 URL 提取 token 参数即 iaaa_token
+  2. POST http://222.29.72.252/api/api/accounts/validate?sessionKey={iaaa_token}
+     响应: {errCode:"0", user: {token=session_key, userid=uid, username=name, phone}}
+     session_key 即后续所有 API 的 sessionKey 参数
+     uid 即学号，name 为真实姓名，phone 为手机号
+
+operation_steps:
+  1: |
+    【获取科目列表】
+    POST http://222.29.72.252/api/Appt/GetNeeds?sessionKey={session_key}&uid={uid}
+    响应: Data.Needs[] = [{text(科目名), value(need_id), Online}]
+    每行包含两个科目（text/value/Online + text2/value2/Online2）
+    need_id 用于后续查询医生
+  2: |
+    【查询出诊医生】
+    POST http://222.29.72.252/api/Appt/GetDoctor?sessionKey={session_key}&need={need_id}&uid={uid}
+    响应: Data.Doctor[] = [{text(科室-医生名\t余号-N), value(doctor_id), memo(医事服务费), profile(简介)}]
+    doctor_id 用于后续查询时段
+  3: |
+    【查询可预约时段】
+    POST http://222.29.72.252/api/Appt/GetYyrq?sessionKey={session_key}&uid={uid}&need={need_id}&doctor={doctor_id}
+    响应: Data.YYRQ[] = [{text(MM-DD HH:MM\t星期X), value(yyxh)}]
+    yyxh 为预约序号，用于预约操作
+  4: |
+    【预约挂号】
+    POST http://222.29.72.252/api/Appt/Upload
+      ?sessionKey={session_key}&id={uid}&name={url_encoded_name}&yyxh={yyxh}&phone={phone}
+    name 来自 auth_chain 步骤2 的 user.username（登录时返回）
+    phone 来自 auth_chain 步骤2 的 user.phone
+    响应 Head.ErrorNo=="0" 表示预约成功
+  5: |
+    【查看我的预约】
+    POST http://222.29.72.252/api/Appt/GetApptList?sessionKey={session_key}&uid={uid}
+    响应: Data.List[] = [{XH, Need(科目), Doctor(医生), YYRQ(时间), Status}]
+    Status: '0'=正常(待就诊,可取消), '-1'=已取消, '1'=已完成
+    XH 用于取消操作
+  6: |
+    【取消预约】
+    POST http://222.29.72.252/api/Appt/UpdateAppt?sessionKey={session_key}&uid={uid}&yyxh={XH}
+    yyxh 取 GetApptList 返回的 XH 字段值
+    响应 Head.ErrorNo=="0" 表示取消成功
+
+selectors:
+  needs_list: "Data.Needs[].{科目: text, need_id: value, 状态: Online}"
+  doctor_list: "Data.Doctor[].{医生: text, doctor_id: value, 费用: memo, 简介: profile}"
+  schedule_list: "Data.YYRQ[].{时间: text, yyxh: value}"
+  appointment_list: "Data.List[].{XH, 科目: Need, 医生: Doctor, 时间: YYRQ, 状态: Status}"
+  status_mapping: "'0'=正常(待就诊,可取消)  '-1'=已取消  '1'=已完成"
+  error_check: "Head.ErrorNo == '0'"
+
+extra_api:
+  validate: "POST http://222.29.72.252/api/api/accounts/validate?sessionKey={iaaa_token}"
+  get_needs: "POST http://222.29.72.252/api/Appt/GetNeeds?sessionKey=...&uid=..."
+  get_doctor: "POST http://222.29.72.252/api/Appt/GetDoctor?sessionKey=...&need=...&uid=..."
+  get_yyrq: "POST http://222.29.72.252/api/Appt/GetYyrq?sessionKey=...&uid=...&need=...&doctor=..."
+  upload: "POST http://222.29.72.252/api/Appt/Upload?sessionKey=...&id=...&name=...&yyxh=...&phone=..."
+  get_appt_list: "POST http://222.29.72.252/api/Appt/GetApptList?sessionKey=...&uid=..."
+  update_appt: "POST http://222.29.72.252/api/Appt/UpdateAppt?sessionKey=...&uid=...&yyxh=..."
+
+params_template:
+  action: "查科目: get_needs | 查医生: get_doctor | 查时段: get_schedule | 预约: book | 我的预约: list | 取消: cancel"
+  need_id: "科目ID，从 get_needs 返回的 Data.Needs[].value 获取（如拔牙=26，洁治=19）"
+  doctor_id: "医生ID，从 get_doctor 返回的 Data.Doctor[].value 获取"
+  yyxh_book: "预约序号，从 get_schedule 返回的 Data.YYRQ[].value 获取（预约时使用）"
+  yyxh_cancel: "预约XH，从 get_appt_list 返回的 Data.List[].XH 获取（取消时使用）"
+
+exception_strategy: |
+  - 校园网外访问：222.29.72.252 不可达，portletRedir 或 validate 会 connect timeout
+  - session_key 失效（Head.ErrorNo != '0', ErrorStr 含 token/session）：重新调用 dental_login()
+  - 时段已满（YYRQ 为空）：提示医生当前无可预约时段，建议换医生或日期
+  - 预约失败（Head.ErrorNo != '0'）：输出 Head.ErrorStr，不重试
+  - 余号不足（text 中 余号-0）：该时段/医生已无号，换其他医生
+
+known_needs:
+  19: 洁治(洗牙)
+  20: 牙周系统治疗
+  21: 充填治疗(补牙)
+  22: 根管治疗(治牙)
+  23: 修复治疗(镶牙)
+  24: 种植修复(种牙)
+  25: 正畸初诊咨询
+  26: 拔牙
+  28: 正畸(保持器)
+  29: 儿童口腔(15岁以下)

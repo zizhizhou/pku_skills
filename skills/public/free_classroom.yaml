@@ -1,0 +1,41 @@
+skill_name: 空闲教室查询
+skill_id: free_classroom
+category: 北大校内服务
+auth_level: public
+base_url: https://portal.pku.edu.cn/publicQuery/
+request_method: GET
+headers_rule:
+  Referer: https://portal.pku.edu.cn/publicQuery/#/freeClassroom
+  Origin: https://portal.pku.edu.cn
+session_reuse: false
+operation_steps:
+  1: 向 extra_api 发送 GET 请求，携带 buildingName 和 time 参数
+  2: 解析返回 JSON，data 为教室列表，每个教室含各节次占用状态
+  3: 提取 roomName（教室号）、seats（座位数）、schedule（1-12节占用状态，0=空闲/1=占用）
+  4: 格式化为表格：教室号 | 座位数 | 各节次状态，标注哪些节次空闲
+selectors:
+  container: "response.rows[]"
+  data_list: "rows[].{room: room, cap: cap, schedule: [c1..c12]}"
+  content_text: "room（教室号）/ cap（座位数）/ cN（空字符串=空闲，非空字符串=占用课程名）"
+extra_api: https://portal.pku.edu.cn/publicQuery/classroomQuery/retrClassRoomFree.do
+params_template:
+  buildingName: "楼栋名（必填）：一教|二教|三教|四教|理教|文史|哲学|地学|国关|政管"
+  time: "查询日期（必填）：今天|明天|后天"
+course_schedule:
+  节次1: "08:00-08:50"
+  节次2: "09:00-09:50"
+  节次3: "10:10-11:00"
+  节次4: "11:10-12:00"
+  节次5: "13:00-13:50"
+  节次6: "14:00-14:50"
+  节次7: "15:10-16:00"
+  节次8: "16:10-17:00"
+  节次9: "17:10-18:00"
+  节次10: "18:40-19:30"
+  节次11: "19:40-20:30"
+  节次12: "20:40-21:30"
+exception_strategy: |
+  - 参数缺失：提示用户必须指定楼栋名和查询日期
+  - buildingName 不在可选列表中：返回"该楼栋暂不支持查询"
+  - 返回空列表：提示"该楼栋无空闲教室数据"
+  - 接口失效：输出原始错误，不启动 Playwright

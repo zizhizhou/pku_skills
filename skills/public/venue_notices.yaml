@@ -1,0 +1,53 @@
+skill_name: 智慧场馆通知公告查询
+skill_id: venue_notices
+category: 北大校内服务
+auth_level: public
+base_url: https://epe.pku.edu.cn/venue-server/
+request_method: GET
+headers_rule:
+  app-key: "8fceb735082b5a529312040b58ea780b"
+  sign: "MD5(S + path + sorted_params_kv + timestamp + ' ' + S)，S=c640ca392cd45fb3a55b00a63a86c618"
+  timestamp: "当前毫秒级时间戳（字符串）"
+  note: "sign/timestamp/app-key 三个头必须每次请求动态生成"
+session_reuse: false
+sign_algorithm: |
+  S = "c640ca392cd45fb3a55b00a63a86c618"
+  sign_str = S + path
+  for key in sorted(params):   # params 含 nocache 等所有 query 参数
+      sign_str += key + params[key]   # 注意 size 的 key 是 "size=" (含等号)
+  sign_str += timestamp + " " + S
+  sign = MD5(sign_str).hexdigest()
+operation_steps:
+  1: |
+    生成 timestamp（毫秒字符串），用 sign_algorithm 计算 sign。
+    GET extra_api.list，params={page:"0", "size=":"20", nocache:timestamp}
+    headers 加 sign/timestamp/app-key
+  2: |
+    解析返回 JSON，data.content[] 为公告列表（Page对象，totalElements/totalPages 可获取总数）。
+    每条公告字段：id, title, shortContent（摘要）, content（HTML 正文，部分为图片），
+    gmtCreate（发布时间）, catalogTitle（分类名）
+  3: |
+    若需查看详情，生成新 timestamp/sign，
+    GET extra_api.detail（路径含 id），params={nocache:timestamp}
+    响应 data 同列表单条结构，content 为完整 HTML 正文。
+    注意：部分公告 content 为 <img> 标签（图片形式），需提示用户通过浏览器查看。
+  4: |
+    格式化输出：标题 | 发布时间 | 摘要（shortContent）
+    若有 content 文本，提取纯文本（strip HTML tags）后附加。
+selectors:
+  container: "response.data.content[]"
+  data_list: "data.content[].{id: id, title: title, date: gmtCreate, summary: shortContent, content: content}"
+  content_text: "title / gmtCreate / shortContent / content(HTML→纯文本，无文本则为图片)"
+extra_api:
+  list: "https://epe.pku.edu.cn/venue-server/api/front/website/articles?page={page}&size={size}&nocache={nocache}"
+  detail: "https://epe.pku.edu.cn/venue-server/api/front/website/articles/{id}?nocache={nocache}"
+params_template:
+  page: "页码，从0开始（list 接口，默认 '0'）"
+  size: "每页条数（list 接口，注意：params key 必须写 'size=' 含等号）"
+  nocache: "毫秒时间戳字符串，每次请求重新生成"
+  id: "文章ID（detail 接口，从列表 data.content[].id 获取）"
+exception_strategy: |
+  - code!=200：检查 sign/timestamp/app-key 头是否正确生成，nocache 时间戳是否为字符串
+  - content 字段为 <img> 标签：该公告为图片形式，无法提取文本，提示用户扫码或浏览器查看
+  - data.content 为空列表：提示"当前无公告"
+  - 接口失效：向用户报告错误，不启动 Playwright

@@ -1,0 +1,113 @@
+skill_name: 图书馆馆藏查询与预约
+skill_id: library_catalog
+category: 北大校内服务
+auth_level: public（搜索/详情）/ pku-login（预约）
+base_url: https://opac.lib.pku.edu.cn/
+request_method: GET / POST
+headers_rule:
+  Referer: https://opac.lib.pku.edu.cn/
+  Content-Type: application/json（POST 接口）
+session_reuse: false（搜索无需登录；预约需要独立 pkulibSession JWT）
+
+auth_chain: |
+  预约操作需 pkulibSession（图书馆自签发 JWT），获取步骤：
+  1. GET https://sso.lib.pku.edu.cn/oauth/authorize
+     ?client_id=newopac&redirect_uri=http://162.105.138.62:8095/sso/login
+     &response_type=code&state=PCReaderOAuth
+     → 302 → https://iaaa.pku.edu.cn/iaaa/oauthLib.jsp?appID=lib_sso&redirectUrl={ssologin_url}
+  2. GET https://iaaa.pku.edu.cn/getPublicKey.do → 获取 RSA 公钥
+     POST https://iaaa.pku.edu.cn/iaaa/oauthlogin.do
+     data: appid=lib_sso, userName, password（RSA加密）, redirUrl={ssologin_url}
+     → {success:true, token: {iaaa_token}}
+  3. GET {ssologin_url}&_rand=0.5&token={iaaa_token}
+     → 在 sso.lib.pku.edu.cn 写入 IUAT/IUGT cookies，响应含 meta-refresh
+  4. GET https://sso.lib.pku.edu.cn/oauth/authorize（同 step1 参数，session 已认证）
+     → 302 → http://162.105.138.62:8095/sso/login?code={oauth_code}
+  5. GET http://162.105.138.62:8095/sso/login?code={oauth_code}&state=PCReaderOAuth
+     → 302 → https://opac.lib.pku.edu.cn/index?code={pkulibSession}
+     从 Location URL 的 code 参数提取 pkulibSession JWT
+
+operation_steps:
+  1: |
+    【搜索书目】（无需登录）
+    GET https://opac.lib.pku.edu.cn/BookAPI/new_opac/query
+    params: cc_all={keyword}（直接传中文，requests 会 URL 编码）, rows=10, start=0, sort=, facet.mincount=1
+    响应 response.docs[] 含: id（cat_marc）、title、author、publisher、publishDate、callnumber-search
+  2: |
+    【获取馆藏详情】（无需登录）
+    注意：cat_marc 参数必须直接拼接在 URL 中，不可通过 params= 传递（否则双重编码失效）
+    GET https://opac.lib.pku.edu.cn/BookAPI/new_opac/query_detail?cat_marc={cat_marc}（原始编码值）
+    响应结构：
+      data.TitleInfo[0]:
+        baseCallNumber、author、ISBN
+        CallInfo[]: {callNumber, libraryID, ItemInfo[]: {itemID, chargeable, currentLocation, homeLocation}}
+        TitleAvailabilityInfo: {totalCopiesAvailable, holdable, libraryWithAvailableCopies}
+      BookInfo: {title, author, publisher, publishDate, callnumber-search}
+  3: |
+    【查询可取书地点】（需要 pkulibSession）
+    按 auth_chain 获取 pkulibSession
+    POST https://opac.lib.pku.edu.cn/ReservationAPI/circ/advisePickupAt
+    body: {"itemBarcode": "{itemID}", "pkulibSession": "{pkulibSession}"}
+    响应 data.list 为可选取书地点列表，data.advised 为推荐取书地点
+  4: |
+    【预约图书】（需要 pkulibSession）
+    POST https://opac.lib.pku.edu.cn/ReservationAPI/circ/createHold
+    body: {"callNumber": "{callNumber}", "expireDate": "", "itemBarcode": "{itemID}",
+           "pickupAt": "{用户选择的取书地点}", "pkulibSession": "{pkulibSession}"}
+    callNumber 取自 CallInfo[].callNumber，itemID 取自 ItemInfo[].itemID（chargeable=true 的）
+    pickupAt 由用户从 advisePickupAt 返回的 list 中选择
+  5: |
+    【查看我的预约】（需要 pkulibSession）
+    GET https://a.lib.pku.edu.cn/prod-api/auth/getMyInfobySession?pkulib_session={pkulibSession}
+    响应 data.patronHoldInfo[]：
+      {title, author, callNumber, itemID, pickupLibraryDescription(取书馆),
+       placedDate(预约日期), holdStatus, holdInactiveReasonID, queuePosition, queueLength, available}
+    holdInactiveReasonID 为空/null = 预约有效；'CANCELLED' = 已取消
+  6: |
+    【查看我的借阅】（需要 pkulibSession）
+    GET https://a.lib.pku.edu.cn/prod-api/auth/getMyInfobySession?pkulib_session={pkulibSession}
+    （同查看我的预约，同一接口）
+    响应 data.patronCheckoutInfo[]：
+      {title, author, callNumber, itemID, dueDate(应还日期), renewalCount(已续借次数), libraryDescription}
+  7: |
+    【取消预约】（需要 pkulibSession）
+    POST https://a.lib.pku.edu.cn/prod-api/circ/cancelHold
+    body: {"itemBarcode": "{itemID}", "callNumber": "{callNumber}",
+           "pkulibSession": "{pkulibSession}", "cancelReason": "{原因，可为空}"}
+    itemBarcode 取自 patronHoldInfo[].itemID
+    callNumber 取自 patronHoldInfo[].callNumber
+    响应 status=0 为成功
+
+selectors:
+  search_result: "response.docs[]"
+  search_fields: "docs[].{cat_marc: id, title: title, author: author, publisher: publisher, date: publishDate, callno: callnumber-search}"
+  detail_title: "data.TitleInfo[0].{baseCallNumber, author, ISBN, holdable: TitleAvailabilityInfo.holdable, totalAvailable: TitleAvailabilityInfo.totalCopiesAvailable}"
+  detail_items: "data.TitleInfo[0].CallInfo[].ItemInfo[].{itemID, chargeable, location: currentLocation, homeLocation}"
+  pickup_locations: "data.list[]"
+  pickup_advised: "data.advised"
+  my_holds: "data.patronHoldInfo[].{title, author, callNumber, itemID, pickupLibrary: pickupLibraryDescription, placedDate, holdInactiveReasonID, queuePosition, available}"
+  my_checkouts: "data.patronCheckoutInfo[].{title, author, callNumber, itemID, dueDate, renewalCount, library: libraryDescription}"
+
+extra_api:
+  search: "https://opac.lib.pku.edu.cn/BookAPI/new_opac/query?cc_all={keyword}&rows=10&start=0&sort=&facet.mincount=1"
+  detail: "https://opac.lib.pku.edu.cn/BookAPI/new_opac/query_detail?cat_marc={cat_marc}"
+  advise_pickup: "https://opac.lib.pku.edu.cn/ReservationAPI/circ/advisePickupAt"
+  create_hold: "https://opac.lib.pku.edu.cn/ReservationAPI/circ/createHold"
+  my_info: "GET https://a.lib.pku.edu.cn/prod-api/auth/getMyInfobySession?pkulib_session={pkulibSession}"
+  cancel_hold: "POST https://a.lib.pku.edu.cn/prod-api/circ/cancelHold"
+  sso_authorize: "https://sso.lib.pku.edu.cn/oauth/authorize?client_id=newopac&redirect_uri=http://162.105.138.62:8095/sso/login&response_type=code&state=PCReaderOAuth"
+  sso_callback: "http://162.105.138.62:8095/sso/login"
+
+params_template:
+  keyword: "搜索关键词（中文直接传，如 '钢铁是怎样炼成的'）"
+  cat_marc: "图书唯一编码，从搜索结果 docs[].id 获取（含 %3D 等编码，需原样拼入 URL）"
+  itemID: "馆藏条码号，从 detail.data.TitleInfo[0].CallInfo[].ItemInfo[].itemID 获取"
+  callNumber: "索书号，从 detail.data.TitleInfo[0].CallInfo[].callNumber 获取"
+  pickupAt: "取书地点，从 advisePickupAt 返回的 data.list[] 中选择，默认用 data.advised"
+
+exception_strategy: |
+  - 搜索 numFound=0：无匹配书目，提示用户换关键词
+  - query_detail 返回空 TitleInfo（{} 或 CatCallItemInfo 结构）：cat_marc 编码问题，改用直接拼 URL
+  - advisePickupAt 返回 401 或 token 相关错误：pkulibSession 失效，重新走 auth_chain
+  - createHold 失败：检查 chargeable=true 的 itemID，不可借阅项目无法预约
+  - http://162.105.138.62:8095 不可达：机器不在 PKU 校园网，无法完成预约认证

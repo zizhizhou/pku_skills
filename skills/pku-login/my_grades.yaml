@@ -1,0 +1,61 @@
+skill_name: 我的成绩查询
+skill_id: my_grades
+category: 北大校内服务
+auth_level: pku-login
+base_url: https://portal.pku.edu.cn/publicQuery/
+request_method: GET
+headers_rule:
+  Referer: https://portal.pku.edu.cn/publicQuery/
+  Cookie: "JSESSIONID={publicQuery_jsessionid}"
+session_reuse: true
+
+# ===== 登录要求 =====
+# 执行前必须完成 pku_login_session 流程，获取有效 SESSION Cookie
+# publicQuery JSESSIONID 通过 _ensure_public_query_session() 自动建立（portletRedir portletId=coursetable）
+
+operation_steps:
+  1: |
+    【前置】完成 pku_login_session 登录，获取 SESSION Cookie
+  2: |
+    【建立 publicQuery JSESSIONID】（幂等）
+    跟随 portletRedir.do?portletId=coursetable → publicQuery SSO 跳转，写入 JSESSIONID
+  3: |
+    【查询成绩】
+    GET https://portal.pku.edu.cn/publicQuery/ctrl/topic/myScore/retrScores.do
+    无需额外参数，服务端根据 JSESSIONID 返回当前用户全部历史成绩
+  4: |
+    解析 scoreLists[]，按 xnd/xq 分组展示：
+    xq=1 → 秋季学期，xq=2 → 春季学期，xq=3 → 夏季小学期
+    cj 为空字符串表示成绩未出
+
+selectors:
+  student_name: "response.xm"
+  student_id: "response.xh"
+  student_type: "response.xslb"
+  score_list: "response.scoreLists[]"
+  score_fields: |
+    scoreLists[].{
+      学年: xnd,
+      学期: xq,
+      课程名: kcmc,
+      课程号: kch,
+      学分: xf,
+      成绩: cj,
+      合格标志: hgbz,
+      课程类别: kclb,
+      考核方式: khfsm,
+      成绩记录方式: cjjlfsm
+    }
+
+extra_api:
+  scores: "https://portal.pku.edu.cn/publicQuery/ctrl/topic/myScore/retrScores.do"
+
+params_template:
+  xnd: "学年筛选（可选），如 '25-26'，不填返回全部"
+  xq: "学期筛选（可选），1=秋季 2=春季 3=夏季小学期，不填返回全部"
+
+exception_strategy: |
+  - SESSION 无效（200 但 success=false 或 scoreLists 为空）：重新执行 pku_login_session 登录
+  - JSESSIONID 未建立（401/302）：调用 _ensure_public_query_session() 重新建立
+  - 成绩为空（cj=""）：输出"成绩未出"，不过滤该课程条目
+  - xslb=yjs 为研究生，bks 为本科生，展示时可注明学生类型

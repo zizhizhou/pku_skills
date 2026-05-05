@@ -1,0 +1,56 @@
+skill_name: 腾讯会议预约申请
+skill_id: tencent_meeting
+category: 北大校内服务
+auth_level: pku-login
+base_url: https://wproc.pku.edu.cn/v2/
+request_method: POST
+headers_rule:
+  Cookie: "SESSION={portal_session}"
+  Referer: https://portal.pku.edu.cn/portal2017/#/bizCenter
+  Content-Type: application/x-www-form-urlencoded
+session_reuse: true
+
+# ===== 登录要求 =====
+# 执行前必须完成 pku_login_session 流程，获取有效 SESSION Cookie
+# 需向用户索取：学号、密码（OTP 按需）
+
+operation_steps:
+  1: |
+    【前置】完成 pku_login_session 登录，获取 SESSION Cookie
+  2: |
+    【获取腾讯会议服务入口】
+    POST https://portal.pku.edu.cn/portal2017/account/retrBizCenterAll.do
+    在返回数据中找 portletName 含"腾讯会议"/"会议" 的条目，获取 portletHref
+    或通过子 portlet: GET https://portal.pku.edu.cn/portal2017/bizcenter/sgims/retrSubPortlets.do?parent={bizId}
+  3: |
+    【访问预约申请页】
+    GET {portletHref}，携带 SESSION Cookie 完成 SSO 认证
+    解析申请表单字段：会议主题/开始时间/结束时间/参会人数/会议类型
+  4: |
+    【提交预约申请】
+    POST {申请提交接口}，携带表单数据
+  5: |
+    返回：申请状态（待审核/已批准/已拒绝）、腾讯会议号/链接、审批流程状态
+
+selectors:
+  portlet_href: "response.all[].rows[?portletName contains '腾讯会议'].portletHref"
+  form_fields: "form.meeting-apply input/select"
+  result: ".apply-result / .meeting-info"
+  meeting_link: ".meeting-link / a[href*='meeting.tencent']"
+extra_api:
+  biz_center_all: "https://portal.pku.edu.cn/portal2017/account/retrBizCenterAll.do"
+  sub_portlets: "https://portal.pku.edu.cn/portal2017/bizcenter/sgims/retrSubPortlets.do?parent={bizId}"
+params_template:
+  action: "申请：apply | 查看状态：check_status | 查看已申请列表：my_applications"
+  topic: "会议主题（申请时必填）"
+  start_time: "开始时间，格式 YYYY-MM-DD HH:mm（申请时必填）"
+  end_time: "结束时间，格式 YYYY-MM-DD HH:mm（申请时必填）"
+  attendees: "参会人数（申请时必填）"
+  meeting_type: "会议类型（线上/线下混合等，按表单选项填写）"
+  application_id: "申请ID（查看状态时使用）"
+exception_strategy: |
+  - SESSION 无效（401）：重新执行 pku_login_session 登录
+  - portletHref 未找到：提示"未找到腾讯会议预约入口，请确认账号权限"
+  - 申请时段冲突：提示"该时段已有申请，请选择其他时间"
+  - 审批状态未变：说明申请流程中，需等待审批
+  - 接口失效：输出原始错误，不启动 Playwright

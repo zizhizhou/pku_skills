@@ -1,0 +1,84 @@
+skill_name: 智慧场馆我的订单查询
+skill_id: venue_orders
+category: 北大校内服务
+auth_level: pku-login
+base_url: https://epe.pku.edu.cn/venue-server/
+request_method: GET
+headers_rule:
+  cgAuthorization: "{cgAuth_token}"
+  sign: "MD5(S + path + sorted_params_kv + timestamp + ' ' + S)"
+  timestamp: "毫秒时间戳字符串"
+  app-key: "8fceb735082b5a529312040b58ea780b"
+session_reuse: true
+
+sign_algorithm: |
+  S = "c640ca392cd45fb3a55b00a63a86c618"
+  sign_str = S + path
+  for key in sorted(params):
+      sign_str += key + params[key]   # params 值须为字符串
+  sign_str += timestamp + " " + S
+  sign = MD5(sign_str).hexdigest()
+
+operation_steps:
+  1: |
+    【IAAA 登录（appId=ty）】
+    访问 https://epe.pku.edu.cn/ggtypt/login?service=https://epe.pku.edu.cn/venue-server/loginto
+    POST https://iaaa.pku.edu.cn/iaaa/oauth.jsp（appID=ty）
+    POST https://iaaa.pku.edu.cn/iaaa/oauthlogin.do（RSA 加密密码，appid=ty）
+    GET https://epe.pku.edu.cn/ggtypt/dologin?_rand=...&token=...（allow_redirects=True）
+    成功后 session 中写入 sso_pku_token cookie（domain=.pku.edu.cn）
+  2: |
+    【获取 venue access_token】
+    POST https://epe.pku.edu.cn/venue-server/api/login
+    headers: sso-token={sso_pku_token}, sign（path='/api/login', params={}）, timestamp, app-key
+    额外 header: Cookie=sso_pku_token={token};menuPosition=88818889;logout_flag=
+    响应 data.token.access_token 为第一级 token，data.role 为角色ID（学生=3，教师=4）
+  3: |
+    【角色登录获取 cgAuthorization】
+    POST https://epe.pku.edu.cn/venue-server/roleLogin?roleid={role}
+    headers: cgAuthorization={access_token}, sign（path='/roleLogin', params={roleid:role}）, timestamp, app-key
+    响应 data.token.access_token 即为 cgAuthorization，后续所有接口使用此 token
+  4: |
+    【查询订单列表】
+    GET https://epe.pku.edu.cn/venue-server/api/orders/mine
+    params: page="0", size="20", nocache={timestamp}
+    headers: cgAuthorization={cgAuth}, sign（path='/api/orders/mine'）, timestamp, app-key
+    响应：{code:200, data:{content:[{...}], totalElements, totalPages}}
+  5: |
+    提取字段：venueName（场馆）、siteName（场地类型）、venueSpaceName（具体场地号）、
+    reservationDate（预约日期）、reservationDateDetail（时段）、
+    orderStatus（1=正常/2=已取消）、payStatus（1=未支付/2=已支付/4=已退款）、
+    amountFee（金额）、tradeNo（订单号）
+
+selectors:
+  container: "response.data.content[]"
+  data_list: |
+    content[].{
+      id: id, tradeNo: tradeNo,
+      venue: venueName, site: siteName, space: venueSpaceName,
+      campus: campusName, date: reservationDate, detail: reservationDateDetail,
+      start: reservationStartDate, end: reservationEndDate,
+      status: orderStatus, payStatus: payStatus, fee: amountFee
+    }
+  order_status: "orderStatus: 1=正常, 2=已取消"
+  pay_status: "payStatus: 1=未支付, 2=已支付, 4=已退款"
+
+extra_api:
+  redirect_venue: "https://epe.pku.edu.cn/ggtypt/login?service=https://epe.pku.edu.cn/venue-server/loginto"
+  iaaa_home: "https://iaaa.pku.edu.cn/iaaa/oauth.jsp?appID=ty&appName=北京大学体测系统&redirectUrl=https://epe.pku.edu.cn/ggtypt/dologin"
+  iaaa_login: "https://iaaa.pku.edu.cn/iaaa/oauthlogin.do"
+  dologin: "https://epe.pku.edu.cn/ggtypt/dologin?_rand={rand}&token={token}"
+  api_login: "https://epe.pku.edu.cn/venue-server/api/login"
+  role_login: "https://epe.pku.edu.cn/venue-server/roleLogin?roleid={role}"
+  orders: "https://epe.pku.edu.cn/venue-server/api/orders/mine"
+
+params_template:
+  page: "页码，从0开始（字符串）"
+  size: "每页条数（字符串，默认'20'）"
+  nocache: "毫秒时间戳字符串"
+
+exception_strategy: |
+  - api/login 返回 code=250 "验证码错误"：sso_pku_token 获取失败，检查 dologin 重定向是否完整
+  - api/login data=null：token 失效，重新走步骤1
+  - orders 返回 code!=200：cgAuthorization 失效，从步骤3重新 roleLogin
+  - content 为空列表：提示"暂无场馆预约记录"

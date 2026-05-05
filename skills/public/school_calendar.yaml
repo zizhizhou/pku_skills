@@ -1,0 +1,68 @@
+skill_name: 校历查询
+skill_id: school_calendar
+category: 北大校内服务
+auth_level: public
+base_url: https://simso.pku.edu.cn/
+request_method: GET
+headers_rule:
+  User-Agent: "Mozilla/5.0"
+session_reuse: false
+
+cache_strategy: |
+  校历文本缓存于项目根目录 .calendar_cache.json，格式：
+    {"2025-2026": {"text": "...", "pdf_url": "...", "cached_at": "YYYY-MM-DD"}, ...}
+  触发远程下载的三种情况（否则直接读取缓存）：
+    1. 本地无该学年缓存（cache miss）
+    2. 用户请求的学年在 _CALENDAR_PDFS 中有记录但缓存中不存在
+    3. force_refresh=True（用户明确要求刷新）
+  触发错误而非下载的情况：
+    - 请求学年不在 _CALENDAR_PDFS 字典中（需先手动添加 PDF URL）
+
+operation_steps:
+  1: |
+    推断学年：
+    - 已指定 academic_year → 直接使用
+    - 未指定 → 当月 >= 9 月取"当年-次年"，否则取"上年-当年"
+  2: |
+    查询本地缓存 .calendar_cache.json：
+    - 命中且 force_refresh=False → 直接进入步骤4，from_cache=True
+    - 未命中或 force_refresh=True → 执行步骤3
+  3: |
+    下载并解析 PDF（仅在缓存未命中或强制刷新时执行）：
+    GET {_CALENDAR_PDFS[academic_year]}（见 extra_api）
+    用 pdfplumber 解析全页文本，写入 .calendar_cache.json
+  4: |
+    关键词匹配（若指定 keyword）：
+    - 节假日别名扩展：五一→[劳动节,五一]、国庆→[国庆节,国庆]、清明→[清明节,清明]、端午→[端午节,端午]
+    - 对每个词做正则搜索，提取前后 80/120 字符上下文片段
+    - 无 keyword 时返回全文
+  5: |
+    返回 {year, text, matched_snippets, pdf_url, from_cache, cached_at}
+    from_cache=True 时必须：
+      a. 告知用户"以下校历来自本地缓存，更新时间：{cached_at}"
+      b. 询问用户是否需要重新获取最新校历
+      c. 若用户确认 → 以 force_refresh=True 重新调用，更新缓存后返回最新结果
+      d. 若用户拒绝 → 直接使用缓存内容继续响应
+
+selectors:
+  content_text: "result.text（全文）"
+  matched: "result.matched_snippets[]（关键词命中片段）"
+  from_cache: "result.from_cache（是否来自本地缓存）"
+  cached_at: "result.cached_at（缓存写入日期，格式 YYYY-MM-DD）"
+
+extra_api:
+  pdf_2526: "https://www.pku.edu.cn/Uploads/File/2025/01/17/u6789e9c75f2f9.pdf"
+  pdf_2627: "https://simso.pku.edu.cn/files/simso/schoolcalendar/2627.pdf"
+  calendar_page: "https://simso.pku.edu.cn/pages/ccSchoolCalendar.html"
+
+params_template:
+  academic_year: "学年标识，如 '2025-2026' 或 '2026-2027'（不填则自动推断）"
+  keyword: "查询关键词，如 '五一' '开学' '考试'（不填则返回全文）"
+  force_refresh: "true = 强制重新下载 PDF 并更新本地缓存（默认 false）"
+
+exception_strategy: |
+  - 请求学年不在 _CALENDAR_PDFS：返回错误，说明已收录学年列表，提示需先添加新 URL
+  - PDF 下载失败（非200）：返回 PDF 直链让用户手动下载，附 calendar_page 链接
+  - pdfplumber 未安装：提示 pip install pdfplumber
+  - 缓存文件损坏（JSON 解析失败）：当作 cache miss，重新下载
+  - 关键词无匹配：返回"校历中未找到相关信息"，附完整提取文本供参考

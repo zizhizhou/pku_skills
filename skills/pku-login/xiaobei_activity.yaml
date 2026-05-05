@@ -1,0 +1,48 @@
+skill_name: 小北活动查询（讲座/演出/招聘/其他）
+skill_id: xiaobei_activity
+category: 北大校内服务
+auth_level: pku-login
+base_url: https://xiaobei.pku.edu.cn/
+request_method: GET
+headers_rule:
+  Referer: https://xiaobei.pku.edu.cn/
+  Accept: application/json
+session_reuse: true
+
+operation_steps:
+  1: |
+    【建立 portal2017 session + 小北 Flask session】
+    PKUSession.ensure_login(username, password)
+    调用 xiaobei_login(session) 建立小北 session cookie。
+  2: |
+    【查询活动列表】
+    GET https://xiaobei.pku.edu.cn/api/api_activity
+    params: event_type={type}, offset={offset}, limit={limit}
+    响应：{activity: [{event_name, event_organizer, event_location, start_time, event_introduction, account, url}]}
+  3: |
+    【格式化输出】
+    提取字段：event_name（标题）、event_organizer（主办方）、event_location（地点）、
+    start_time（开始时间，RFC格式转换为本地时间）、event_introduction（简介）、url（链接）
+    url 字段处理：
+      - 以 https:// 或 http:// 开头：外部链接，直接展示
+      - 以 /api/get_content/ 开头：内部链接，提示"详情请在小北App内查看"
+
+selectors:
+  container: "response.activity[]"
+  data_list: "activity[].{name:event_name, organizer:event_organizer, location:event_location, time:start_time, intro:event_introduction, url:url}"
+
+extra_api:
+  lecture: "https://xiaobei.pku.edu.cn/api/api_activity?event_type=lecture&offset={offset}&limit={limit}"
+  show: "https://xiaobei.pku.edu.cn/api/api_activity?event_type=show&offset={offset}&limit={limit}"
+  recruitment: "https://xiaobei.pku.edu.cn/api/api_activity?event_type=recruitment&offset={offset}&limit={limit}"
+  other: "https://xiaobei.pku.edu.cn/api/api_activity?event_type=other&offset={offset}&limit={limit}"
+
+params_template:
+  event_type: "活动类型：lecture（讲座）| show（演出）| recruitment（招聘）| other（其他）"
+  offset: "分页偏移（默认0）"
+  limit: "每页条数（默认10）"
+
+exception_strategy: |
+  - 返回 401：xiaobei session 失效，重新调用 xiaobei_login()
+  - activity 为空列表：提示"当前暂无相关活动"
+  - url 以 /api/get_content/ 开头：该活动详情为内部页面，提示用户在小北 App 查看

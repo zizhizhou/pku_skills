@@ -1,0 +1,56 @@
+skill_name: 校内公告总览查询
+skill_id: portal_notices
+category: 北大校内服务
+auth_level: public
+base_url: https://portal.pku.edu.cn/portal2017/
+request_method: POST
+headers_rule:
+  Content-Type: application/x-www-form-urlencoded
+  Referer: https://portal.pku.edu.cn/portal2017/#/index
+  Origin: https://portal.pku.edu.cn
+session_reuse: false
+operation_steps:
+  1: |
+    并行 POST 三个公告接口，num 参数控制返回条数（URL query param，非 body）：
+      学校公告：POST https://portal.pku.edu.cn/portal2017/notice/retrRecentSchoolNotice.do?num=7
+      单位公告：POST https://portal.pku.edu.cn/portal2017/notice/retrRecentDeptNotice.do?num=21
+      干部选任：POST https://portal.pku.edu.cn/portal2017/notice/retrRecentCadreApntNotice.do?num=7
+    body 为空（不传任何参数）
+  2: |
+    解析各接口 JSON 响应，从 data.[] 或顶层数组提取公告列表。
+    每条公告含字段：Number（公告ID，用于拼接详情URL）、Title、Department、Time
+  3: |
+    格式化输出：类型 | 标题 | 时间 | 发布单位
+  4: |
+    若需查看详情内容，POST 对应详情接口（id 为 URL query param，body 为空）：
+      学校公告详情：POST https://portal.pku.edu.cn/portal2017/notice/getSchoolNoticeDetailById.do?id={Number}
+      单位公告详情：POST https://portal.pku.edu.cn/portal2017/notice/getDeptNoticeDetailById.do?id={Number}
+      干部选任详情：POST https://portal.pku.edu.cn/portal2017/notice/getCadreApntNoticeDetailById.do?id={Number}
+    响应：{success:true, notice:{noticeTitle, noticeContent(HTML), ...}}
+    noticeContent 为 HTML 富文本，需去除标签后输出纯文本。
+    前端路由 URL（浏览器访问）：
+      学校公告：https://portal.pku.edu.cn/portal2017/#/schoolNoticeDetail/{Number}
+      单位公告：https://portal.pku.edu.cn/portal2017/#/deptNoticeDetail/{Number}
+      干部选任：https://portal.pku.edu.cn/portal2017/#/cadreApntNoticeDetail/{Number}
+selectors:
+  container: "response.rows[]"
+  data_list: "rows[].{number: Number, title: Title, time: Time, dept: Department}"
+  content_text: "Title / Time / Department / Number（用于详情链接）"
+extra_api:
+  school_notice: "https://portal.pku.edu.cn/portal2017/notice/retrRecentSchoolNotice.do?num={num}"
+  dept_notice: "https://portal.pku.edu.cn/portal2017/notice/retrRecentDeptNotice.do?num={num}"
+  cadre_notice: "https://portal.pku.edu.cn/portal2017/notice/retrRecentCadreApntNotice.do?num={num}"
+  school_detail: "https://portal.pku.edu.cn/portal2017/notice/getSchoolNoticeDetailById.do?id={Number}"
+  dept_detail: "https://portal.pku.edu.cn/portal2017/notice/getDeptNoticeDetailById.do?id={Number}"
+  cadre_detail: "https://portal.pku.edu.cn/portal2017/notice/getCadreApntNoticeDetailById.do?id={Number}"
+  school_detail_url: "https://portal.pku.edu.cn/portal2017/#/schoolNoticeDetail/{Number}"
+  dept_detail_url: "https://portal.pku.edu.cn/portal2017/#/deptNoticeDetail/{Number}"
+  cadre_detail_url: "https://portal.pku.edu.cn/portal2017/#/cadreApntNoticeDetail/{Number}"
+params_template:
+  num: "返回条数（URL query param）：学校公告默认7，单位公告默认21，干部选任默认7"
+  Number: "公告ID（从列表接口返回结果中获取），用于拼接详情页面 URL"
+exception_strategy: |
+  - POST 返回 HTML 页面（非 JSON）：接口路径已变更，检查 URL 是否正确
+  - 返回空列表：提示"当前无最新公告"
+  - 单个接口失败：仍返回其他可用接口的数据，注明哪类公告获取失败
+  - 详情 URL 为前端路由（#/），不是 REST 接口，无法通过 webfetch 直接获取详情内容

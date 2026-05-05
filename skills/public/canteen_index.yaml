@@ -1,0 +1,29 @@
+skill_name: 就餐指数查询
+skill_id: canteen_index
+category: 北大校内服务
+auth_level: public
+base_url: https://portal.pku.edu.cn/publicQuery/
+request_method: POST
+headers_rule:
+  Content-Type: application/x-www-form-urlencoded
+  Referer: https://portal.pku.edu.cn/publicQuery/#/canteen
+  Origin: https://portal.pku.edu.cn
+session_reuse: false
+operation_steps:
+  1: 向 extra_api 发送 POST 请求，无需 Cookie，无需参数，直接返回全部餐厅数据
+  2: 解析返回 JSON，顶层字段 time（统计时间）、rows（餐厅列表数组）
+  3: 提取 name（餐厅名）、seat（总座位数）、ip（当前在座人数/就餐指数）
+  4: 格式化输出：餐厅名 | 在座/总座 | 就餐指数
+selectors:
+  container: "response.rows[]"
+  data_list: "rows[].{name: name, seat: seat, ip: ip}"
+  content_text: "name（餐厅名）/ seat（总座位数）/ ip（当前在座人数）"
+  timestamp: "response.time（数据统计时间）"
+extra_api: https://portal.pku.edu.cn/publicQuery/canteenQuery/retrCarteenInfos.do
+params_template:
+  # 无必填参数，直接 POST 空 body 返回全部餐厅数据
+  # 可选: canteenName=燕南园餐厅 等进行过滤
+exception_strategy: |
+  - 返回非200或 success=false：提示"就餐指数服务暂时不可用，请稍后重试"
+  - data 为空列表：提示"当前暂无就餐数据"
+  - 页面结构变更：输出原始错误信息，不使用 Playwright

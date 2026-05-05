@@ -1,0 +1,26 @@
+# credentials & session
+.env
+.env.*.local
+.pku_session.json
+
+# runtime caches
+.course_cache.json
+.calendar_cache.json
+*.pyc
+__pycache__/
+.cache
+
+# dev artifacts
+node_modules/
+.playwright-mcp/
+.claude/
+out/
+dist/
+coverage/
+*.lcov
+*.tsbuildinfo
+*.log
+
+# OS
+.DS_Store
+.idea

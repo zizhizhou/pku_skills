@@ -1,0 +1,119 @@
+skill_name: 我的课表查询与自定义
+skill_id: my_schedule
+category: 北大校内服务
+auth_level: pku-login
+base_url: https://portal.pku.edu.cn/publicQuery/
+request_method: GET
+headers_rule:
+  Cookie: "JSESSIONID={publicQuery_jsessionid}"
+  Referer: https://portal.pku.edu.cn/publicQuery/
+session_reuse: true
+
+cache_strategy: |
+  课表缓存于项目根目录 .course_cache.json，结构：
+  {
+    "25-26-2": {
+      "official": {
+        "courses": [{_id, name, weekday, timeNum, time, location, frequency, ...}],
+        "cached_at": "YYYY-MM-DD"
+      },
+      "custom": {
+        "add":    [{...自定义新增课程, _id: "custom_xxx"}],
+        "remove": ["_id1", "_id2"],   // 官方课程中被删除的 _id
+        "modify": {"_id3": {...完整修改后课程}}  // 官方课程被修改的版本
+      }
+    }
+  }
+  触发远程接口拉取的情况（否则读取本地缓存）：
+    1. 本地无该学期官方课表（cache miss）
+    2. force_refresh=True（用户明确要求更新）
+  force_refresh 仅更新 official 部分，custom 内容永远不受影响。
+
+operation_steps:
+  1: |
+    【推断/确认学期】
+    - 已指定 xndxq → 直接使用（格式：25-26-1 / 25-26-2）
+    - 未指定 → 当月>=9月取"YY-(YY+1)-1"，否则取"(YY-1)-YY-2"
+  2: |
+    【查询本地缓存 .course_cache.json】
+    - 命中且 force_refresh=False → 直接进入步骤4，from_cache=True
+    - 未命中或 force_refresh=True → 执行步骤3（需登录态）
+  3: |
+    【从接口拉取官方课表】（仅在缓存未命中或强制刷新时）
+    GET https://portal.pku.edu.cn/publicQuery/ctrl/topic/myCourseTable/getCourseInfo.do?xndxq={xndxq}
+    解析并生成各课程的稳定 _id（MD5前12位，基于 timeNum+weekday+name）。
+    写入 .course_cache.json 的 official 部分，不修改 custom 部分。
+  4: |
+    【应用自定义叠加层】
+    1. 从 official.courses 出发
+    2. 过滤掉 custom.remove 中的 _id
+    3. 将 custom.modify 中的修改覆盖对应官方课程
+    4. 追加 custom.add 中的自定义新增课程
+    每门课附加 source 字段：
+      'official'          → 未修改的官方课程
+      'official_modified' → 被用户修改过的官方课程
+      'custom_added'      → 用户自定义新增的课程
+  5: |
+    【返回并展示，必须包含以下提示】
+    - 若 from_cache=True：告知用户"课表来自本地缓存，更新时间：{cached_at}"，并询问是否重新获取
+    - 始终标注各课程的来源（source）：官方 / 自定义
+    - 始终告知用户可以自定义课表，并简述方法（见 custom_editing 字段）
+
+custom_editing: |
+  用户可通过以下方式自定义课表（保存在本地，不影响官方数据）：
+
+  【新增课程】
+    CLI: python src/main.py schedule add --name 课程名 --weekday 周X --time-num 第X节
+         可选：--location 教室 --frequency 每周/单周/双周 --note 备注
+    API: course_add(xndxq, {"name":..., "weekday":..., "timeNum":..., ...})
+
+  【删除课程】（官方或自定义均可）
+    CLI: python src/main.py schedule remove --id {_id}
+    API: course_remove(xndxq, course_id)
+    说明：删除官方课程只是在本地隐藏，不影响接口数据；force_refresh 后仍保持隐藏
+
+  【修改课程】（官方或自定义均可）
+    CLI: python src/main.py schedule modify --id {_id} --name 新名称 --location 新教室
+    API: course_modify(xndxq, course_id, {"name":..., "location":...})
+
+  【查看课程 _id】
+    在课表输出中每门课均显示 _id，用于 remove/modify 操作
+
+  【重置自定义内容】
+    直接编辑 .course_cache.json，清空对应学期的 custom.add/remove/modify
+
+selectors:
+  courses: "result.courses[].{_id, name, weekday, timeNum, time, location, frequency, parity, source}"
+  official_only: "result.courses[?source=='official']"
+  custom_only: "result.courses[?source=='custom_added' || source=='official_modified']"
+  from_cache: "result.from_cache"
+  cached_at: "result.cached_at"
+
+extra_api:
+  portlet_redir: "https://portal.pku.edu.cn/portal2017/util/portletRedir.do?portletId=coursetable"
+  course_info: "https://portal.pku.edu.cn/publicQuery/ctrl/topic/myCourseTable/getCourseInfo.do?xndxq={xndxq}"
+
+params_template:
+  xndxq: "学年学期，如 25-26-2（不填自动推断）"
+  force_refresh: "true = 强制重新从接口拉取官方课表（不影响自定义内容）"
+
+class_periods:
+  第一节: "08:00-08:50"
+  第二节: "09:00-09:50"
+  第三节: "10:10-11:00"
+  第四节: "11:10-12:00"
+  第五节: "13:00-13:50"
+  第六节: "14:00-14:50"
+  第七节: "15:10-16:00"
+  第八节: "16:10-17:00"
+  第九节: "17:10-18:00"
+  第十节: "18:40-19:30"
+  第十一节: "19:40-20:30"
+  第十二节: "20:40-21:30"
+
+exception_strategy: |
+  - from_cache=True：必须提醒用户缓存时间并询问是否刷新
+  - course API 返回 401 HTML：JSESSIONID 失效，重新建立 publicQuery session
+  - success=false：xndxq 格式错误或课表服务异常
+  - 所有 courseName 为空：本学期无选课记录
+  - _id 未找到（remove/modify）：提示用户先用 view 查看课程 _id

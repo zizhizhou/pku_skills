@@ -1,0 +1,87 @@
+skill_name: 正版软件搜索与下载链接提取
+skill_id: software_download
+category: 北大校内服务
+auth_level: pku-login
+base_url: https://software.pku.edu.cn/
+request_method: GET / POST
+headers_rule:
+  Authorization: "{Admin-Token}"
+  Referer: https://software.pku.edu.cn/
+session_reuse: true
+
+auth_chain: |
+  软件平台使用独立 Admin-Token，与门户 SESSION 无关，需单独建立：
+  1. GET https://portal.pku.edu.cn/portal2017/util/portletRedir.do?portletId=softLegal
+     → 302 → appSysRedir → 302 → https://software.pku.edu.cn?token={portal_token}&...
+     portal_token 从落地 URL query string 中提取
+  2. POST https://software.pku.edu.cn/prod-api/sso/getUserInfo
+     data: ticket={portal_token}
+     → {code:200, token: "{Admin-Token}", userNum: "..."}
+  后续所有 API 请求 header: Authorization: {Admin-Token}
+
+operation_steps:
+  1: |
+    【建立 Admin-Token】
+    按 auth_chain 步骤获取 Admin-Token
+  2: |
+    【搜索软件】
+    GET https://software.pku.edu.cn/prod-api/category/double/list
+    params: str={keyword}, type=-1
+    headers: Authorization={Admin-Token}
+    响应 data[].childMenusList[].softs[] 为匹配软件列表，每项含：
+      softwareId、name、intro、downloadPath0、size、downloadNum
+    downloadPath0 即为下载接口地址（格式：.../prod-api/download/{softwareId}/170784/0）
+  3: |
+    【智能搜索策略】
+    若搜索结果为空，分步缩短关键词后重试：
+    - 用户说"win10"→先搜"windows"了解命名规则（结果显示 windows_10/windows_11 等）
+    - 再用正确形式"windows_10"搜索
+    - 类似规则适用于其他软件（如 office_2019、matlab_r2024b）
+  4: |
+    【获取软件详情】
+    GET https://software.pku.edu.cn/prod-api/softwareIndex/info?id={softwareId}
+    headers: Authorization={Admin-Token}
+    响应 data.software 含：name、intro、details（HTML 富文本，需去除标签后输出）、
+    systemVer、size（字节）、downloadNum、downloadPath0
+    详情与下载链接应同时返回给用户
+  5: |
+    【获取真实下载链接】
+    GET {downloadPath0}（即 https://software.pku.edu.cn/prod-api/download/{softwareId}/170784/0）
+    headers: Authorization={Admin-Token}
+    响应 {code:200, msg: "{真实下载URL}"}
+    msg 字段即为可直接下载的文件链接
+
+selectors:
+  search_result: "data[].childMenusList[].softs[]"
+  software_fields: |
+    softs[].{
+      id: softwareId,
+      name: name,
+      intro: intro,
+      size: size,
+      download_count: downloadNum,
+      download_api: downloadPath0
+    }
+  detail_fields: "data.software.{name, intro, details, systemVer, size, downloadNum, downloadPath0}"
+  download_url: "response.msg"
+
+extra_api:
+  portlet_redir: "https://portal.pku.edu.cn/portal2017/util/portletRedir.do?portletId=softLegal"
+  sso_login: "https://software.pku.edu.cn/prod-api/sso/getUserInfo"
+  search: "https://software.pku.edu.cn/prod-api/category/double/list?str={keyword}&type=-1"
+  download: "https://software.pku.edu.cn/prod-api/download/{softwareId}/170784/0"
+  product_page: "https://software.pku.edu.cn/product.html?id={softwareId}"
+
+params_template:
+  keyword: |
+    搜索关键词（str 参数）。命名规则示例：
+    windows_10、windows_11、office_2019、office_2021、matlab_r2024b
+    若不确定名称，先搜索品牌词（如 windows、office、matlab）查看分类后再精确搜索
+  type: "分类过滤，-1 表示全类型搜索"
+
+exception_strategy: |
+  - Admin-Token 获取失败（sso/getUserInfo code≠200）：门户 SESSION 已过期，重新登录
+  - 搜索返回 401：Admin-Token 失效，重新走 auth_chain
+  - 搜索结果 data 为空列表：关键词不匹配，先搜索品牌词了解命名规则后重试
+  - downloadPath0 为空字符串：该软件暂无下载链接，可能需要额外授权申请
+  - 下载接口返回 401：Admin-Token 失效，重新认证

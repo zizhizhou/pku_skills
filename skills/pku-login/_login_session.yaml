@@ -1,0 +1,75 @@
+skill_name: 北大门户统一登录会话（公共基础）
+skill_id: pku_login_session
+category: 北大校内服务
+auth_level: pku-login
+base_url: https://portal.pku.edu.cn/portal2017/
+request_method: POST
+headers_rule:
+  Content-Type: application/x-www-form-urlencoded
+  Referer: https://iaaa.pku.edu.cn/
+  Origin: https://iaaa.pku.edu.cn
+session_reuse: true
+
+# ===== 凭据来源（优先级从高到低）=====
+# 1. 用户在对话中直接提供
+# 2. 根目录 .env 文件中的 PKU_PORTAL_STUDENT_ID / PKU_PORTAL_PASSWORD
+# 3. 运行时向用户询问（必须提示：密码仅用于本次登录，不会保存）
+
+# ===== 安全约束 =====
+# - 禁止在响应、日志、输出中包含密码明文
+# - OTP/验证码仅在检测到需要时向用户索取，禁止猜测
+# - 密码错误时不自动重试，原样告知用户错误信息后停止
+
+operation_steps:
+  1: |
+    【向用户索取凭据】
+    提示："请提供您的北大学号和门户密码（密码仅用于本次登录，不会保存）。"
+    若 .env 文件中有 PKU_PORTAL_STUDENT_ID / PKU_PORTAL_PASSWORD，直接读取跳过询问。
+  2: |
+    【OTP 预检】
+    GET https://iaaa.pku.edu.cn/iaaa/isMobileAuthen.do?userName={username}&appId=portal2017&_rand={random}
+    若返回 isMobileAuthen=true 且 authenMode="OTP"：
+      告知用户"您的账号开启了手机令牌（尾号{mobileMask}），请输入 App 当前动态口令。"
+      等待用户输入 OTP
+  3: |
+    【IAAA 登录】
+    POST https://iaaa.pku.edu.cn/iaaa/oauthlogin.do
+    Body: userName={username}&password={password}&appId=portal2017
+          &appName=北京大学校内信息门户新版
+          &redirUrl=https://portal.pku.edu.cn/portal2017/ssoLogin.do
+          &_rand={random}
+          [若需要OTP] &otp={otp_code}
+    解析响应：success=true 时获取 token/rand 参数
+  4: |
+    【建立门户会话】
+    GET https://portal.pku.edu.cn/portal2017/ssoLogin.do?rand={rand}&token={token}
+    响应 Set-Cookie 中获取 SESSION Cookie
+    此后所有门户请求携带：Cookie: SESSION={session_value}
+  5: |
+    【验证登录】
+    POST https://portal.pku.edu.cn/portal2017/isUserLogged.do
+    返回 loggedIn=true 表示会话有效
+
+selectors:
+  otp_check: "response.isMobileAuthen / response.authenMode / response.mobileMask"
+  login_result: "response.success / response.token / response.errMsg"
+  session_cookie: "Set-Cookie: SESSION=..."
+
+extra_api:
+  otp_check: "https://iaaa.pku.edu.cn/iaaa/isMobileAuthen.do"
+  login: "https://iaaa.pku.edu.cn/iaaa/oauthlogin.do"
+  sso_callback: "https://portal.pku.edu.cn/portal2017/ssoLogin.do"
+  is_logged: "https://portal.pku.edu.cn/portal2017/isUserLogged.do"
+  basic_info: "https://portal.pku.edu.cn/portal2017/account/getBasicInfo.do"
+
+params_template:
+  username: 学号（必填）
+  password: 密码（必填，不保存不输出）
+  otp_code: 手机动态口令（仅 OTP 模式需要）
+  random: Math.random() 生成的随机数
+
+exception_strategy: |
+  - IAAA 返回 success=false：原样输出 errMsg，告知用户，停止重试
+  - OTP 错误：告知"动态口令错误"，可要求用户重新输入（OTP 有时效）
+  - SESSION 获取失败：检查 ssoLogin.do 是否正常重定向
+  - 401 响应：会话过期，需重新登录

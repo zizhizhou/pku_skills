@@ -1,0 +1,73 @@
+skill_name: 小北对话
+skill_id: xiaobei_chat
+category: 北大校内服务
+auth_level: pku-login
+base_url: https://xiaobei.pku.edu.cn/
+request_method: POST
+headers_rule:
+  Referer: https://xiaobei.pku.edu.cn/
+  Origin: https://xiaobei.pku.edu.cn
+  Accept: text/event-stream
+  Content-Type: application/json
+session_reuse: true
+
+operation_steps:
+  1: |
+    【建立 portal2017 session】
+    PKUSession.ensure_login(username, password)
+  2: |
+    【建立小北 Flask session】
+    GET https://portal.pku.edu.cn/portal2017/util/appSysRedir.do?appId=xiaobei
+    allow_redirects=True，从落地 URL 提取 token 参数。
+    GET https://xiaobei.pku.edu.cn/api/api_validate?token={token}
+    成功后 session cookie 中写入 `session`（Flask session），
+    响应：{campus_id, name, role, hash}
+  3: |
+    【发送问题（SSE 流式）】
+    POST https://xiaobei.pku.edu.cn/api/api_chat_playground
+    payload:
+      messages: 历史消息数组（含本次问题），每条 {role, content, timestamp, feedback:0}
+        最后一条为 {role:"assistant", content:"", timestamp:..., feedback:0}（占位，由服务端填充）
+      unique_id: 会话唯一ID（SHA256 hex，同一多轮对话保持不变）
+      kn_list: []
+      timestamp: 当前时间（%Y-%m-%d %H:%M:%S.%f）
+      special_type: "default"
+  4: |
+    【解析 SSE 流】
+    响应为 text/event-stream，每行格式：data: {json}
+    各事件字段及含义：
+      docs: 检索到的知识库文档（JSON string，仅首条事件）
+      urls: 相关链接
+      markdowns: markdown 格式附加内容
+      locations: 地图/位置信息
+      answer: 回复 token（流式，需拼接所有 answer 事件值）
+      locations: 地点坐标列表 [{latitude, longitude, name}]（可生成地图链接）
+      markdowns: markdown 格式附加内容
+    终止标志：data: [DONE]
+    完整回复 = ''.join(所有 answer 事件的值)
+    注意：@#@# 为段落分隔符，@# 为换行符，输出时替换为 \n
+  5: |
+    【多轮追问】
+    将上一轮的完整回复填入 messages 中对应的 assistant content，
+    追加新问题后重复步骤3-4。unique_id 在同一会话中保持不变。
+
+selectors:
+  sse_answer: "逐行读取，过滤 'data: ' 前缀，解析 JSON，拼接所有 ev['answer']"
+  sse_docs: "首条事件 ev['docs']（JSON string，含知识库检索内容）"
+  sse_urls: "ev['urls']（相关链接列表）"
+
+extra_api:
+  portlet_redir: "https://portal.pku.edu.cn/portal2017/util/appSysRedir.do?appId=xiaobei"
+  api_validate: "https://xiaobei.pku.edu.cn/api/api_validate?token={token}"
+  chat: "https://xiaobei.pku.edu.cn/api/api_chat_playground"
+
+params_template:
+  question: "用户问题文本"
+  history: "历史消息列表（多轮对话时传入，单轮可为空）"
+  unique_id: "会话ID，SHA256 hex，同一对话保持不变"
+
+exception_strategy: |
+  - api_validate 返回 401：token 已过期，重新执行步骤1-2
+  - chat 返回 401 {error:'Session has expired'}：Flask session 失效，重建 xiaobei session
+  - SSE 流中无 answer 事件：服务端异常，返回原始 docs 内容作为参考
+  - 回复中含 @#@# 分隔符：为段落分隔，可替换为换行展示
