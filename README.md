@@ -2,14 +2,13 @@
 
 # 🎓 PKU Skills — 北大校内服务技能库
 
-### *"能跟 AI 说一句话搞定的事，为什么要开十几个 App？"*
+### _"能跟 AI 说一句话搞定的事，为什么要打开北大门户各种页面？"_
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://python.org)
 [![AgentSkills](https://img.shields.io/badge/AgentSkills-Standard-green)](https://agentskills.io)
-[![Stars](https://img.shields.io/github/stars/zizhizhou/pku_skills?style=social)](https://github.com/zizhizhou/pku_skills/stargazers)
-
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-Skill-blueviolet)](https://github.com/zizhizhou/pku_skills)
+
 [![Hermes](https://img.shields.io/badge/Hermes-Skill-orange)](https://github.com/zizhizhou/pku_skills)
 [![OpenClaw](https://img.shields.io/badge/OpenClaw-Skill-teal)](https://github.com/zizhizhou/pku_skills)
 [![QClaw](https://img.shields.io/badge/QClaw-Skill-steelblue)](https://github.com/zizhizhou/pku_skills)
@@ -36,7 +35,7 @@
 
 **自然语言输入 → Agent 调用 Skill → 直连北大接口 → 完整业务闭环**
 
-账号密码只存本地，不经过任何第三方服务器。
+Agent + PKU Skills = 你的北大生活助手,帮你去查询、去预约、去规划你在北大的生活点点滴滴，别让这些琐事消耗你的精力
 
 <br>
 
@@ -168,29 +167,29 @@ cp ~/.openclaw/skills/pku_skills/.env.example ~/.openclaw/skills/pku_skills/.env
 
 ## 🚀 使用
 
-安装完成后，直接用自然语言和 Agent 对话即可。以下是一些常用示例：
+安装完成后，直接用你能想到的最直接、最不绕弯、最一针见血、最开门见山、最不铺垫（此处省略99个最xx）的方式说出你的需求，Agent会不躲，不藏，不绕，不逃，稳稳地接住你。以下是一些常用示例：
 
 ### 🔓 无需登录
 
-| 你说 | Agent 做的事 |
-|------|-------------|
-| 今天学一食堂人多吗 | 查询各食堂实时就餐人数 |
-| 明天下午三教有没有空教室 | 按楼栋+时段筛选空闲教室 |
-| 帮我查最新的校内公告 | 返回学校/干部/单位三类公告 |
-| 五一放几天假 | 解析校历 PDF，匹配假期安排 |
-| 帮我查《活着》能不能借 | 搜索馆藏，返回在库状态和取书地点 |
+| 你说                     | Agent 做的事                     |
+| ------------------------ | -------------------------------- |
+| 今天学一食堂人多吗       | 查询各食堂实时就餐人数           |
+| 明天下午三教有没有空教室 | 按楼栋+时段筛选空闲教室          |
+| 帮我查最新的校内公告     | 返回学校/干部/单位三类公告       |
+| 五一放几天假             | 解析校历 PDF，匹配假期安排       |
+| 帮我查《活着》能不能借   | 搜索馆藏，返回在库状态和取书地点 |
 
 ### 🔐 需登录
 
-| 你说 | Agent 做的事 |
-|------|-------------|
-| 帮我看看我的课表 | 查询本学期课表，标注官方/自定义来源 |
-| 我的饭卡还剩多少钱 | 查询电子账户余额和卡余额 |
-| 帮我约明天从燕园到新燕园最早的班车 | 查时刻表 → 确认班次 → 完成预约 |
-| 我的成绩出来了吗 | 查询已出成绩列表，标注未出项 |
-| 帮我下载 Office Win64 | 登录正版软件平台，提取直链 |
-| 预约拔牙医生 | 列出在诊医生 → 选择 → 预约时段 |
-| 网费还剩多少 | 需提供 OTP，查询余额和套餐 |
+| 你说                               | Agent 做的事                        |
+| ---------------------------------- | ----------------------------------- |
+| 帮我看看我的课表                   | 查询本学期课表，标注官方/自定义来源 |
+| 我的饭卡还剩多少钱                 | 查询电子账户余额和卡余额            |
+| 帮我约明天从燕园到新燕园最早的班车 | 查时刻表 → 确认班次 → 完成预约      |
+| 我的成绩出来了吗                   | 查询已出成绩列表，标注未出项        |
+| 帮我下载 Office Win64              | 登录正版软件平台，提取直链          |
+| 预约拔牙医生                       | 列出在诊医生 → 选择 → 预约时段      |
+| 网费还剩多少                       | 需提供 OTP，查询余额和套餐          |
 
 ### 🛠️ 课表自定义
 
