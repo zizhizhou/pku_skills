@@ -1,8 +1,44 @@
-# PKU Skills — 北大校内服务技能库
+# 🎓 PKU Skills — 北大校内服务技能库
 
-**用自然语言操作北大校内门户的一切。**
+### *"能跟 AI 说一句话搞定的事，为什么要开十几个 App？"*
 
-查食堂、找教室、看成绩、约班车、查网费……以前要在十几个页面里来回跳，现在跟 AI 说一句话搞定。
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://python.org)
+[![AgentSkills](https://img.shields.io/badge/AgentSkills-Standard-green)](https://agentskills.io)
+[![Stars](https://img.shields.io/github/stars/zizhizhou/pku_skills?style=social)](https://github.com/zizhizhou/pku_skills/stargazers)
+
+[![Claude Code](https://img.shields.io/badge/Claude%20Code-Skill-blueviolet)](https://github.com/zizhizhou/pku_skills)
+[![Hermes](https://img.shields.io/badge/Hermes-Skill-orange)](https://github.com/zizhizhou/pku_skills)
+[![OpenClaw](https://img.shields.io/badge/OpenClaw-Skill-teal)](https://github.com/zizhizhou/pku_skills)
+[![QClaw](https://img.shields.io/badge/QClaw-Skill-steelblue)](https://github.com/zizhizhou/pku_skills)
+
+<br>
+
+<table>
+<tr><td align="left">
+
+🍜 &nbsp;食堂人多不多？哪个窗口不用排队？<br>
+📚 &nbsp;图书馆有没有这本书？能不能借？在哪取？<br>
+🚌 &nbsp;最早一班回昌平的车几点？帮我约上。<br>
+🦷 &nbsp;i看牙想预约拔牙，哪个医生有空？<br>
+💰 &nbsp;网费还剩多少？饭卡余额够不够吃到月底？
+
+</td></tr>
+</table>
+
+### ✨ 这些，PKU Skills 都能一句话搞定。
+
+<br>
+
+将北大17项校内服务封装为标准化 Agent 技能库，覆盖门户、图书馆、场馆、班车、医疗、正版软件等全场景。
+
+**自然语言输入 → Agent 调用 Skill → 直连北大接口 → 完整业务闭环**
+
+账号密码只存本地，不经过任何第三方服务器。
+
+<br>
+
+[🏗️ 架构设计](#架构设计) · [⚡ 安装](#安装) · [🎬 演示](#演示) · [📦 功能覆盖](#功能覆盖) · [🔒 凭据说明](#凭据说明)
 
 ---
 
@@ -141,12 +177,12 @@ graph TD
 
 6202 年了，你有 Agent，让它帮你装——直接把下面这句话扔给它：
 
-> 帮我从 `https://github.com/zizhizhou/pku_skills` 安装 PKU Skills
+> 帮我从 `http://code.satellite.pku.edu.cn/zizhou/pku_skills` 安装 PKU Skills
 
 或者自己动手，三行搞定：
 
 ```bash
-git clone https://github.com/zizhizhou/pku_skills ~/.openclaw/skills/pku_skills
+git clone http://code.satellite.pku.edu.cn/zizhou/pku_skills ~/.openclaw/skills/pku_skills
 pip install -r ~/.openclaw/skills/pku_skills/requirements.txt
 cp ~/.openclaw/skills/pku_skills/.env.example ~/.openclaw/skills/pku_skills/.env
 # 编辑 .env，填入学号和密码
@@ -192,9 +228,3 @@ pku_skills/
 - OTP 有效期约 30 秒，仅网络服务时使用，不建议写入配置文件
 
 以上缓存文件均已加入 `.gitignore`，不会被提交。
-
----
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=zizhizhou/pku_skills&type=Date)](https://star-history.com/#zizhizhou/pku_skills&Date)
