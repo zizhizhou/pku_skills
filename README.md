@@ -1,3 +1,5 @@
+<div align="center">
+
 # 🎓 PKU Skills — 北大校内服务技能库
 
 ### *"能跟 AI 说一句话搞定的事，为什么要开十几个 App？"*
@@ -30,7 +32,7 @@
 
 <br>
 
-将北大17项校内服务封装为标准化 Agent 技能库，覆盖门户、图书馆、场馆、班车、医疗、正版软件等全场景。
+将北大 17 项校内服务封装为标准化 Agent 技能库，覆盖门户、图书馆、场馆、班车、医疗、正版软件等全场景。
 
 **自然语言输入 → Agent 调用 Skill → 直连北大接口 → 完整业务闭环**
 
@@ -38,37 +40,9 @@
 
 <br>
 
-[🏗️ 架构设计](#架构设计) · [⚡ 安装](#安装) · [🎬 演示](#演示) · [📦 功能覆盖](#功能覆盖) · [🔒 凭据说明](#凭据说明)
+[🏗️ 架构设计](#架构设计) · [⚡ 安装](#安装) · [🚀 使用](#使用) · [✨ 效果示例](#效果示例) · [📦 功能覆盖](#功能覆盖) · [🔒 凭据说明](#凭据说明)
 
----
-
-## 演示
-
-### 查看所有技能
-
-![所有技能列表](imges/all_skills.png)
-
-### 食堂人多不多？
-
-![食堂就餐指数](imges/canteen.png)
-
-### 十一放几天？
-
-![校历查询](imges/calendar.png)
-
-### 饭卡还剩多少钱？
-
-![校园卡余额](imges/campus.png)
-
-### 帮我订一班车
-
-![班车预约](imges/bus.png)
-
-Agent 自动查时刻表 → 确认班次 → 完成预约 → 支持取消，全程对话驱动。
-
-### 下个 Windows 用用
-
-![正版软件下载](imges/software.png)
+</div>
 
 ---
 
@@ -177,18 +151,87 @@ graph TD
 
 6202 年了，你有 Agent，让它帮你装——直接把下面这句话扔给它：
 
-> 帮我从 `http://code.satellite.pku.edu.cn/zizhou/pku_skills` 安装 PKU Skills
+> 帮我从 `https://github.com/zizhizhou/pku_skills` 安装 PKU Skills
 
 或者自己动手，三行搞定：
 
 ```bash
-git clone http://code.satellite.pku.edu.cn/zizhou/pku_skills ~/.openclaw/skills/pku_skills
+git clone https://github.com/zizhizhou/pku_skills ~/.openclaw/skills/pku_skills
 pip install -r ~/.openclaw/skills/pku_skills/requirements.txt
 cp ~/.openclaw/skills/pku_skills/.env.example ~/.openclaw/skills/pku_skills/.env
 # 编辑 .env，填入学号和密码
 ```
 
 不同 Agent 平台的详细安装步骤见 [INSTALL.md](INSTALL.md)。
+
+---
+
+## 🚀 使用
+
+安装完成后，直接用自然语言和 Agent 对话即可。以下是一些常用示例：
+
+### 🔓 无需登录
+
+| 你说 | Agent 做的事 |
+|------|-------------|
+| 今天学一食堂人多吗 | 查询各食堂实时就餐人数 |
+| 明天下午三教有没有空教室 | 按楼栋+时段筛选空闲教室 |
+| 帮我查最新的校内公告 | 返回学校/干部/单位三类公告 |
+| 五一放几天假 | 解析校历 PDF，匹配假期安排 |
+| 帮我查《活着》能不能借 | 搜索馆藏，返回在库状态和取书地点 |
+
+### 🔐 需登录
+
+| 你说 | Agent 做的事 |
+|------|-------------|
+| 帮我看看我的课表 | 查询本学期课表，标注官方/自定义来源 |
+| 我的饭卡还剩多少钱 | 查询电子账户余额和卡余额 |
+| 帮我约明天从燕园到新燕园最早的班车 | 查时刻表 → 确认班次 → 完成预约 |
+| 我的成绩出来了吗 | 查询已出成绩列表，标注未出项 |
+| 帮我下载 Office Win64 | 登录正版软件平台，提取直链 |
+| 预约拔牙医生 | 列出在诊医生 → 选择 → 预约时段 |
+| 网费还剩多少 | 需提供 OTP，查询余额和套餐 |
+
+### 🛠️ 课表自定义
+
+课表支持在官方数据基础上增删改，自定义内容本地保存，`force_refresh` 不会覆盖：
+
+```
+# 对 Agent 说：
+帮我在课表里加一门课，周五第七节，B101教室，叫"自定义测试课"
+把课表里 ID 为 xxx 的课删掉
+把那门课的教室改成 理教 107
+```
+
+---
+
+## ✨ 效果示例
+
+### 查看所有技能
+
+![所有技能列表](imges/all_skills.png)
+
+### 🍜 食堂人多不多？
+
+![食堂就餐指数](imges/canteen.png)
+
+### 📅 十一放几天？
+
+![校历查询](imges/calendar.png)
+
+### 💳 饭卡还剩多少钱？
+
+![校园卡余额](imges/campus.png)
+
+### 🚌 帮我订一班车
+
+![班车预约](imges/bus.png)
+
+Agent 自动查时刻表 → 确认班次 → 完成预约 → 支持取消，全程对话驱动。
+
+### 💻 下个 Windows 用用
+
+![正版软件下载](imges/software.png)
 
 ---
 
@@ -213,7 +256,7 @@ pku_skills/
 │   ├── pku_public.py         # 无需登录的公开 API
 │   └── pku_venue.py          # 智慧场馆 API
 │
-└── imges/                    # 演示截图
+└── imges/                    # 效果示例截图
 ```
 
 ---
@@ -228,3 +271,9 @@ pku_skills/
 - OTP 有效期约 30 秒，仅网络服务时使用，不建议写入配置文件
 
 以上缓存文件均已加入 `.gitignore`，不会被提交。
+
+---
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=zizhizhou/pku_skills&type=Date)](https://star-history.com/#zizhizhou/pku_skills&Date)
