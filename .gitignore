@@ -2,10 +2,16 @@
 .env
 .env.*.local
 .pku_session.json
+.treehole_session.json
+.course_session.json
+.wechat_session.json
+.wechat_accounts.json
+wechat_qrcode.png
 
 # runtime caches
 .course_cache.json
 .calendar_cache.json
+qrcode.png
 *.pyc
 __pycache__/
 .cache

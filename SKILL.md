@@ -1,6 +1,6 @@
 ---
 name: pku-skills
-description: 北大校内服务技能库 — 食堂人流、空教室、课表、成绩、班车预约、牙科预约、网费查询等17项北大校内服务
+description: 北大校内服务技能库 — 食堂人流、空教室、课表、成绩、班车预约、牙科预约、网费查询、北大树洞（只读）等北大校内服务
 version: 1.0.0
 platforms: [macos, linux, windows]
 required_environment_variables:
@@ -71,6 +71,10 @@ pip install -r ${HERMES_SKILL_DIR}/requirements.txt
 | 正版软件 / office / matlab / windows 下载 | `software_download` | Python API |
 | 讲座 / 演出 / 校园招聘 / 近期活动 | `xiaobei_activity` | Python API |
 | 已办事项 / 办理记录 | `completed_tasks` | `tasks` |
+| 教学网 / 课程 / 作业 / 课件 / 公告 | `course_skill` | `course` / `course-assignments` / `course-announcements` / `course-content` |
+| 树洞 / 北大树洞 / 树洞帖子 / 树洞搜索 | `treehole` | `treehole` / `treehole-get` / `treehole-search` |
+| 北大公众号 / 北大微信 / 公众号列表 / 添加公众号 / 删除公众号 | `pku_wechat_accounts` | `wechat-accounts` |
+| 微信文章 / 公众号推文 / 北大推送 | `pku_wechat_accounts` | `wechat-articles` / `wechat-scrape` |
 
 ### 第二步：无匹配时走小北
 
@@ -110,10 +114,34 @@ python ${HERMES_SKILL_DIR}/src/main.py <command> [options]
 
 1. 环境变量：`PKU_STUDENT_ID`、`PKU_PASSWORD`（Hermes 通过 `required_environment_variables` 自动注入）
 2. `.env` 文件：放置于技能根目录
-3. 交互式输入（getpass，密码不回显）
+3. 二维码登录（无需账号密码，见下方流程）
 
 **重要**：密码不要明文出现在命令行历史中。
 登录状态持久化至 `<SKILL_DIR>/.pku_session.json`，同一天内无需重复登录。
+
+## 二维码登录（Agent 场景推荐）
+
+当账号密码不可用时，使用分步二维码登录。Agent 必须先展示二维码，**等待用户回复已扫码**后再轮询，不得阻塞等待。
+
+**第一步：生成并展示二维码**
+```bash
+python <SKILL_DIR>/src/main.py login --qr [--base64]
+```
+- 默认在终端打印字符画 + 保存 `qrcode.png`
+- 加 `--base64` 额外输出 `data:image/png;base64,...` 字符串，供 Agent 通过微信/企业微信等平台发图
+
+**第二步：用户扫码后，Agent 立即轮询结果**
+```bash
+python <SKILL_DIR>/src/main.py login --qr-poll
+```
+- 持续轮询 IAAA（最长 3 分钟），成功后保存 Portal Session
+- 若二维码过期（约 3 分钟），重新执行第一步
+
+**Agent 调用示例流程：**
+1. 执行 `login --qr --base64`，读取输出中的 base64 字符串并将图片发送给用户
+2. 告知用户「请用北京大学令牌 App 扫描二维码」并等待回复
+3. 用户回复已扫码后，立即执行 `login --qr-poll`
+4. 轮询成功后继续执行用户原始请求
 
 ---
 
@@ -146,6 +174,27 @@ notices --type 可选值：`school`（学校公告）| `cadre`（干部选任）
 | `bus-book` | 预约班车 | `python <SKILL_DIR>/src/main.py bus-book --time-id 44 --resource-id 7` |
 | `bus-my` | 我的班车预约 | `python <SKILL_DIR>/src/main.py bus-my` |
 | `venue-orders` | 我的场馆订单 | `python <SKILL_DIR>/src/main.py venue-orders` |
+| `course` | 教学网课程列表 | `python <SKILL_DIR>/src/main.py course [--all]` |
+| `course-assignments` | 教学网作业列表（含截止日期） | `python <SKILL_DIR>/src/main.py course-assignments [--course-id _98127_1]` |
+| `course-announcements` | 教学网课程公告 | `python <SKILL_DIR>/src/main.py course-announcements [--course-id _98127_1]` |
+| `course-content` | 浏览课程内容/文件 | `python <SKILL_DIR>/src/main.py course-content _98127_1 [--content-id _1566459_1]` |
+| `treehole` | 树洞首页列表 | `python <SKILL_DIR>/src/main.py treehole [--page 1] [--size 25]` |
+| `treehole-get` | 查看树洞帖子及全部回复 | `python <SKILL_DIR>/src/main.py treehole-get 123456` |
+| `treehole-search` | 搜索树洞 | `python <SKILL_DIR>/src/main.py treehole-search 关键词 [--page 1]` |
+
+### 微信公众号（wechat-login 独立登录）
+
+| 命令 | 说明 | 示例 |
+|------|------|------|
+| `wechat-login` | 生成 QR 码（Step 1） | `python <SKILL_DIR>/src/main.py wechat-login [--base64]` |
+| `wechat-login --poll` | 扫码后完成登录（Step 2） | `python <SKILL_DIR>/src/main.py wechat-login --poll` |
+| `wechat-accounts list` | 查看北大公众号列表 | `python <SKILL_DIR>/src/main.py wechat-accounts list` |
+| `wechat-accounts add` | 添加公众号到列表 | `python <SKILL_DIR>/src/main.py wechat-accounts add --name "北大校报" --fakeid <fakeid>` |
+| `wechat-accounts remove` | 从列表删除公众号 | `python <SKILL_DIR>/src/main.py wechat-accounts remove --fakeid <fakeid>` |
+| `wechat-accounts reset` | 恢复内置默认列表 | `python <SKILL_DIR>/src/main.py wechat-accounts reset` |
+| `wechat-search` | 搜索任意公众号获取 fakeid | `python <SKILL_DIR>/src/main.py wechat-search "北京大学" --count 5` |
+| `wechat-articles` | 获取公众号文章列表 | `python <SKILL_DIR>/src/main.py wechat-articles <fakeid> --count 10` |
+| `wechat-scrape` | 抓取文章正文为纯文本 | `python <SKILL_DIR>/src/main.py wechat-scrape "<url>" [--output file.txt]` |
 
 ### 需门户登录（Python API，无 CLI 命令）
 

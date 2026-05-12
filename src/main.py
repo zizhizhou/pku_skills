@@ -5,12 +5,16 @@
 """
 
 import argparse
-import getpass
 import json
 import os
 import sys
 from datetime import date
 from pathlib import Path
+
+# Force UTF-8 output on Windows
+if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
 # Load .env if present
 env_file = Path(__file__).parent.parent / ".env"
@@ -23,14 +27,65 @@ if env_file.exists():
 
 
 def _get_creds(args):
-    username = args.username or os.environ.get("PKU_STUDENT_ID") or input("学号: ")
-    password = args.password or os.environ.get("PKU_PASSWORD") or getpass.getpass("密码: ")
+    username = args.username or os.environ.get("PKU_STUDENT_ID") or None
+    password = args.password or os.environ.get("PKU_PASSWORD") or None
     otp = getattr(args, "otp", None) or os.environ.get("PKU_OTP") or None
     return username, password, otp
 
 
 def _print_json(data):
     print(json.dumps(data, ensure_ascii=False, indent=2))
+
+
+# ── Login command ──────────────────────────────────────────────────────────────
+
+def cmd_login(args):
+    from pku_session import PKUSession
+    username, password, otp = _get_creds(args)
+    qr_modes = _qr_output_modes(args)
+
+    # ── 树洞登录（单进程内完成短信验证）────────────────────────────────────────
+    if getattr(args, "treehole_sms", None) is not None:
+        from pku_treehole import TreeholeSession
+        ts = TreeholeSession()
+        sms_code = args.treehole_sms
+        if sms_code:
+            # 直接提交验证码（仅当上次发送后 session 未被污染时有效）
+            ts.verify_sms(sms_code)
+            print("[✓] 树洞短信验证成功，JWT 已保存")
+        else:
+            # 登录 + 发送短信 + 交互式输入验证码（单进程，session 不会被污染）
+            if not (username and password):
+                raise RuntimeError("树洞登录需要账号密码（.env 中设置 PKU_STUDENT_ID / PKU_PASSWORD）")
+
+            def sms_getter(hint: str) -> str:
+                print(f"[树洞] {hint}")
+                return input("请输入短信验证码: ").strip()
+
+            ts.login(username, password, otp, sms_code_getter=sms_getter)
+            print("[✓] 树洞短信验证成功，JWT 已保存")
+        return
+
+    # ── Portal 登录 ───────────────────────────────────────────────────────────
+    s = PKUSession()
+
+    if getattr(args, "qr_poll", False):
+        s.poll_qr_login()
+        print("[✓] 扫码成功，Session 已保存")
+        return
+
+    if args.qr or not (username and password):
+        if not args.qr:
+            print("[提示] 未找到账号密码（.env 未配置），切换到二维码登录模式")
+        s.login_with_qr(output_modes=qr_modes, poll=False)
+        print("[QR] 扫码完成后请运行: python src/main.py login --qr-poll")
+    else:
+        otp_info = s.check_otp_required(username)
+        if otp_info["otp_required"] and not otp:
+            print(f"[提示] 账号需要手机令牌（尾号{otp_info['mobile_mask']}），请输入6位动态口令：")
+            otp = input("OTP: ").strip()
+        s.login(username, password, otp)
+        print("[✓] 密码登录成功，Session 已保存")
 
 
 # ── Public commands ────────────────────────────────────────────────────────────
@@ -114,17 +169,27 @@ def cmd_venue_notices(args):
 def _make_portal_session(args):
     from pku_session import PKUSession
     username, password, otp = _get_creds(args)
+    qr_modes = _qr_output_modes(args)
     s = PKUSession()
-    s.ensure_login(username, password, otp)
+    s.ensure_login(username, password, otp, qr_output_modes=qr_modes)
     return s
 
 
 def _make_wproc_session(args):
     from pku_session import WprocSession
     username, password, otp = _get_creds(args)
+    qr_modes = _qr_output_modes(args)
     s = WprocSession()
-    s.ensure_login(username, password, otp)
+    s.ensure_login(username, password, otp, qr_output_modes=qr_modes)
     return s
+
+
+def _qr_output_modes(args) -> list:
+    """根据 args 决定 QR 输出模式列表。"""
+    modes = ["terminal", "file"]
+    if getattr(args, "base64", False):
+        modes.append("base64")
+    return modes
 
 
 def cmd_card(args):
@@ -353,6 +418,223 @@ def cmd_venue_orders(args):
     _print_json(data)
 
 
+# ── Course (教学网) commands ───────────────────────────────────────────────────
+
+def _make_course_session(args):
+    from pku_course import CourseSession
+    cs = CourseSession()
+    if not cs.is_logged_in():
+        username, password, otp = _get_creds(args)
+        cs.ensure_login(username, password, otp)
+    return cs
+
+
+def cmd_course_list(args):
+    from pku_course import format_course
+    cs = _make_course_session(args)
+    courses = cs.list_courses(current_only=not args.all)
+    if not courses:
+        print("未找到课程（可能需要重新登录）")
+        return
+    label = "当前学期" if not args.all else "全部"
+    print(f"{label}课程（共{len(courses)}门）：")
+    for c in courses:
+        print(format_course(c))
+
+
+def cmd_course_assignments(args):
+    from pku_course import format_assignment
+    cs = _make_course_session(args)
+    assignments = cs.list_assignments(course_id=getattr(args, "course_id", None))
+    if not assignments:
+        print("没有找到作业")
+        return
+    print(f"作业列表（共{len(assignments)}个）：")
+    for a in assignments:
+        print(format_assignment(a))
+
+
+def cmd_course_announcements(args):
+    from pku_course import format_announcement
+    cs = _make_course_session(args)
+    anns = cs.list_announcements(
+        course_id=getattr(args, "course_id", None),
+        limit=args.num,
+    )
+    if not anns:
+        print("没有找到公告")
+        return
+    print(f"课程公告（共{len(anns)}条）：")
+    for a in anns:
+        print(format_announcement(a))
+        print()
+
+
+def cmd_course_content(args):
+    from pku_course import format_content_item
+    cs = _make_course_session(args)
+    items = cs.list_content(args.course_id, content_id=getattr(args, "content_id", None))
+    if not items:
+        print("该目录下没有内容")
+        return
+    for item in items:
+        print(format_content_item(item))
+
+
+# ── Treehole commands ──────────────────────────────────────────────────────────
+
+def _make_treehole_session(args):
+    """Return an authenticated TreeholeSession."""
+    from pku_treehole import TreeholeSession
+    ts = TreeholeSession()
+
+    sms = getattr(args, "sms", None) or os.environ.get("PKU_SMS_CODE") or None
+
+    def sms_getter(hint: str) -> str:
+        if sms:
+            print(f"[树洞] {hint}，使用已提供的验证码")
+            return sms
+        raise RuntimeError(
+            f"树洞需要短信验证（{hint}）。\n"
+            "请先获取验证码，然后通过 --sms 参数传入，例如：\n"
+            "  python src/main.py treehole --sms 123456"
+        )
+
+    if ts.is_logged_in():
+        return ts
+    username, password, otp = _get_creds(args)
+    if not (username and password):
+        raise RuntimeError(
+            "树洞登录需要账号密码（.env 中设置 PKU_STUDENT_ID / PKU_PASSWORD）"
+        )
+    ts.login(username, password, otp, sms_code_getter=sms_getter)
+    return ts
+
+
+def cmd_treehole_list(args):
+    from pku_treehole import format_hole
+    ts = _make_treehole_session(args)
+    holes = ts.list_holes(page=args.page, limit=args.size)
+    if not holes:
+        print("没有获取到树洞内容")
+        return
+    for h in holes:
+        print(format_hole(h))
+
+
+def cmd_treehole_get(args):
+    from pku_treehole import format_hole, format_floor
+    ts = _make_treehole_session(args)
+    hole = ts.get_hole(args.id)
+    print(format_hole(hole, brief=False))
+    print()
+    floors = ts.get_floors(args.id)
+    for f in floors:
+        print(format_floor(f))
+
+
+def cmd_treehole_search(args):
+    from pku_treehole import format_hole
+    ts = _make_treehole_session(args)
+    results = ts.search(args.keyword, page=args.page, limit=args.size)
+    if not results:
+        print(f"未找到包含「{args.keyword}」的树洞")
+        return
+    print(f"搜索「{args.keyword}」结果（第{args.page}页）：")
+    for h in results:
+        print(format_hole(h))
+
+
+# ── WeChat (微信公众号) commands ──────────────────────────────────────────────────
+
+def cmd_wechat_login(args):
+    from pku_wechat import WechatSession
+    ws = WechatSession()
+    if getattr(args, "poll", False):
+        token = ws.poll_qr_login()
+        print(f"[✓] 微信公众平台登录成功，token={token}")
+        return
+    modes = ["terminal", "file"]
+    if getattr(args, "base64", False):
+        modes.append("base64")
+    ws.login_qr(output_modes=modes)
+
+
+def cmd_wechat_accounts(args):
+    from pku_wechat import (load_pku_accounts, add_pku_account,
+                             remove_pku_account, reset_pku_accounts, format_account)
+    action = getattr(args, "action", "list")
+
+    if action == "list":
+        accounts = load_pku_accounts()
+        print(f"北大公众号列表（共{len(accounts)}个）：")
+        for i, a in enumerate(accounts, 1):
+            alias = f"  alias={a.get('alias','')}" if a.get('alias') else ""
+            print(f"  [{i}] {a['name']}  fakeid={a['fakeid']}{alias}")
+
+    elif action == "add":
+        if not args.fakeid or not args.name:
+            raise RuntimeError("添加公众号需要 --name 和 --fakeid")
+        accounts = add_pku_account(args.name, args.fakeid, getattr(args, "alias", "") or "")
+        print(f"[✓] 已添加「{args.name}」，当前共{len(accounts)}个公众号")
+
+    elif action == "remove":
+        if not args.fakeid:
+            raise RuntimeError("删除公众号需要 --fakeid")
+        accounts, removed = remove_pku_account(args.fakeid)
+        if removed:
+            print(f"[✓] 已删除 fakeid={args.fakeid}，当前共{len(accounts)}个公众号")
+        else:
+            print(f"未找到 fakeid={args.fakeid}")
+
+    elif action == "reset":
+        accounts = reset_pku_accounts()
+        print(f"[✓] 已恢复默认列表，共{len(accounts)}个公众号")
+
+
+def cmd_wechat_search(args):
+    from pku_wechat import WechatSession, format_account
+    ws = WechatSession()
+    if not ws.is_logged_in():
+        raise RuntimeError("请先运行 wechat-login 登录微信公众平台")
+    accounts = ws.search_accounts(args.query, count=args.count)
+    if not accounts:
+        print(f"未找到公众号「{args.query}」")
+        return
+    print(f"搜索「{args.query}」结果（共{len(accounts)}个）：")
+    for a in accounts:
+        print(format_account(a))
+        print()
+
+
+def cmd_wechat_articles(args):
+    from pku_wechat import WechatSession, format_article
+    ws = WechatSession()
+    if not ws.is_logged_in():
+        raise RuntimeError("请先运行 wechat-login 登录微信公众平台")
+    result = ws.list_articles(args.fakeid, count=args.count, begin=args.begin)
+    articles = result["articles"]
+    total = result["total_count"]
+    if not articles:
+        print("没有找到文章")
+        return
+    print(f"共 {total} 篇文章，当前显示 {len(articles)} 篇：")
+    for i, a in enumerate(articles):
+        print(format_article(a, idx=args.begin + i + 1))
+        print()
+
+
+def cmd_wechat_scrape(args):
+    from pku_wechat import WechatSession
+    ws = WechatSession()
+    text = ws.scrape_article(args.url)
+    if args.output:
+        Path(args.output).write_text(text, encoding="utf-8")
+        print(f"[✓] 文章内容已保存至: {args.output}")
+    else:
+        print(text)
+
+
 # ── CLI entry ──────────────────────────────────────────────────────────────────
 
 def build_parser():
@@ -367,6 +649,18 @@ def build_parser():
     cred_parent.add_argument("--otp", help="手机动态令牌6位口令")
 
     sub = parser.add_subparsers(dest="cmd", required=True)
+
+    # Login
+    login_p = sub.add_parser("login", help="登录并保存 Session（支持密码或二维码）",
+                              parents=[cred_parent])
+    login_p.add_argument("--qr", action="store_true",
+                         help="生成二维码并保存 IAAA Cookie（不阻塞，适合 Agent 分步调用）")
+    login_p.add_argument("--qr-poll", action="store_true",
+                         help="轮询扫码结果（配合 --qr 分步使用，扫码后调用此命令完成登录）")
+    login_p.add_argument("--base64", action="store_true",
+                         help="额外以 base64 格式输出二维码（供 Agent 发送给微信等平台）")
+    login_p.add_argument("--treehole-sms", nargs="?", const="", metavar="CODE",
+                         help="树洞短信验证两步流程：不带 CODE 时发送短信，带 CODE 时提交验证码")
 
     # Public
     sub.add_parser("canteen", help="就餐指数")
@@ -440,6 +734,64 @@ def build_parser():
     vo_p = sub.add_parser("venue-orders", help="我的场馆订单", parents=[cred_parent])
     vo_p.add_argument("--status", help="筛选状态: 0待付款|1已确认|2已完成|3已取消")
 
+    # Course / 教学网 (login required)
+    course_p = sub.add_parser("course", help="教学网课程列表", parents=[cred_parent])
+    course_p.add_argument("--all", action="store_true", help="显示所有学期课程（默认只显示当前）")
+
+    course_ass = sub.add_parser("course-assignments", help="教学网作业列表", parents=[cred_parent])
+    course_ass.add_argument("--course-id", dest="course_id", help="指定课程ID（不填则查询所有课程）")
+
+    course_ann = sub.add_parser("course-announcements", help="教学网课程公告", parents=[cred_parent])
+    course_ann.add_argument("--course-id", dest="course_id", help="指定课程ID（不填则查询所有课程）")
+    course_ann.add_argument("--num", type=int, default=20, help="显示条数（默认20）")
+
+    course_con = sub.add_parser("course-content", help="浏览教学网课程内容/文件", parents=[cred_parent])
+    course_con.add_argument("course_id", help="课程ID（从 course 命令获取）")
+    course_con.add_argument("--content-id", dest="content_id", help="子目录ID（不填则显示顶层）")
+
+    # Treehole (read-only)
+    th_list = sub.add_parser("treehole", help="树洞首页列表", parents=[cred_parent])
+    th_list.add_argument("--page", type=int, default=1)
+    th_list.add_argument("--size", type=int, default=25, help="每页条数（默认25）")
+    th_list.add_argument("--sms", help="短信验证码（首次登录可能需要）")
+
+    th_get = sub.add_parser("treehole-get", help="查看树洞帖子详情及所有回复", parents=[cred_parent])
+    th_get.add_argument("id", type=int, help="树洞编号，如 123456")
+    th_get.add_argument("--sms", help="短信验证码（首次登录可能需要）")
+
+    th_search = sub.add_parser("treehole-search", help="搜索树洞", parents=[cred_parent])
+    th_search.add_argument("keyword", help="搜索关键词")
+    th_search.add_argument("--page", type=int, default=1)
+    th_search.add_argument("--size", type=int, default=25)
+    th_search.add_argument("--sms", help="短信验证码（首次登录可能需要）")
+
+    # WeChat 微信公众号（独立登录，不依赖 IAAA）
+    wl_p = sub.add_parser("wechat-login", help="微信公众平台 QR 码登录")
+    wl_p.add_argument("--poll", action="store_true",
+                      help="轮询扫码结果（扫码后调用此命令完成登录）")
+    wl_p.add_argument("--base64", action="store_true", help="额外输出 base64 二维码")
+
+    wac_p = sub.add_parser("wechat-accounts", help="北大公众号列表管理（查看/添加/删除/重置）")
+    wac_p.add_argument("action", nargs="?", default="list",
+                       choices=["list", "add", "remove", "reset"],
+                       help="操作：list(默认) | add | remove | reset")
+    wac_p.add_argument("--name", help="公众号名称（add 时必填）")
+    wac_p.add_argument("--fakeid", help="公众号 fakeid（add/remove 时必填）")
+    wac_p.add_argument("--alias", help="公众号英文 alias（add 时可选）")
+
+    ws_p = sub.add_parser("wechat-search", help="搜索微信公众号")
+    ws_p.add_argument("query", help="搜索关键词，如 北京大学")
+    ws_p.add_argument("--count", type=int, default=5, help="结果数量（默认5）")
+
+    wa_p = sub.add_parser("wechat-articles", help="获取公众号文章列表")
+    wa_p.add_argument("fakeid", help="公众号 fakeid（从 wechat-search 获取）")
+    wa_p.add_argument("--count", type=int, default=10, help="每次获取数量（默认10）")
+    wa_p.add_argument("--begin", type=int, default=0, help="从第N篇开始（默认0）")
+
+    wsc_p = sub.add_parser("wechat-scrape", help="抓取微信文章内容（转为纯文本）")
+    wsc_p.add_argument("url", help="文章链接（mp.weixin.qq.com/s/...）")
+    wsc_p.add_argument("--output", "-o", help="保存到文件路径（不填则打印到终端）")
+
     return parser
 
 
@@ -451,6 +803,7 @@ def main():
     args = parser.parse_args()
 
     dispatch = {
+        "login": cmd_login,
         "canteen": cmd_canteen,
         "classroom": cmd_classroom,
         "notices": cmd_notices,
@@ -468,6 +821,18 @@ def main():
         "schedule": cmd_schedule,
         "grades": cmd_grades,
         "venue-orders": cmd_venue_orders,
+        "treehole": cmd_treehole_list,
+        "treehole-get": cmd_treehole_get,
+        "treehole-search": cmd_treehole_search,
+        "course": cmd_course_list,
+        "course-assignments": cmd_course_assignments,
+        "course-announcements": cmd_course_announcements,
+        "course-content": cmd_course_content,
+        "wechat-login": cmd_wechat_login,
+        "wechat-accounts": cmd_wechat_accounts,
+        "wechat-search": cmd_wechat_search,
+        "wechat-articles": cmd_wechat_articles,
+        "wechat-scrape": cmd_wechat_scrape,
     }
 
     fn = dispatch.get(args.cmd)

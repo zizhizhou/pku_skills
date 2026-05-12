@@ -1,0 +1,107 @@
+skill_name: 北大微信公众号列表与文章采集
+skill_id: pku_wechat_accounts
+category: 北大校内服务
+auth_level: wechat-login
+
+description: |
+  维护一份北大相关微信公众号列表（内置默认 + 用户自定义），
+  支持查看列表、添加/删除公众号、获取文章列表、抓取文章正文。
+  列表持久化存储于 .wechat_accounts.json，内置默认不可被 force_refresh 覆盖。
+
+default_accounts:
+  - name: 北京大学
+    fakeid: MzA3OTE0MjQzMw==
+    alias: iPKU1898
+  - name: 北京大学招生办
+    fakeid: MzA4NjEzNDYxMQ==
+    alias: gotopku1898
+  - name: 燕京学堂
+    fakeid: MzI1NTk2MDMwMA==
+    alias: yanjinginstitute
+  - name: 北大团委
+    fakeid: MjM5NTI3MDYyNQ==
+    alias: pkutuanwei
+  - name: 北大学生就业指导服务中心
+    fakeid: MjM5NTA4MDQ4MA==
+    alias: pkujob
+  - name: 北大图书馆
+    fakeid: MjM5NTI4NzM1Mg==
+    alias: lib_pku
+  - name: 北京大学教务部
+    fakeid: MzA4NjEzNDYxMg==
+    alias: pkujwb
+  - name: 北大研究生院
+    fakeid: MjM5NTI2NjQxMg==
+    alias: pkugraduate
+  - name: 北京大学信息门户
+    fakeid: MjM5ODI2NjM3OQ==
+    alias: bdxxfw
+  - name: 北京大学校园卡
+    fakeid: MzU3NjU1NDY2OQ==
+  - name: 北京大学百周年纪念讲堂
+    fakeid: MzU2ODY1ODE1MQ==
+    alias: pkuhall
+  - name: 北京大学勺园中关新园官方服务号
+    fakeid: MzA3Mjk3Mzg0Nw==
+    alias: pkushaoyuanpkugv
+  - name: 北京大学医院
+    fakeid: MzI0MTA5NDE4Mg==
+    alias: pkuh_pku_edu_cn
+  - name: 北京大学学生会
+    fakeid: MzA3MDAxMTIxMQ==
+    alias: pkustudentunion
+
+cache_strategy: |
+  公众号列表持久化于项目根目录 .wechat_accounts.json。
+  文件存在时优先读取用户自定义列表；文件不存在时使用内置默认列表。
+  reset 操作删除 .wechat_accounts.json，恢复为内置默认。
+  微信 Session 持久化于 .wechat_session.json，token 过期需重新 wechat-login。
+
+operation_steps:
+  查看列表: |
+    CLI: python <SKILL_DIR>/src/main.py wechat-accounts list
+    输出所有已保存公众号的名称、fakeid、alias
+
+  添加公众号: |
+    1. 若不知道 fakeid，先搜索：
+       python <SKILL_DIR>/src/main.py wechat-search "公众号名称"
+    2. 从搜索结果获取 fakeid，然后添加：
+       python <SKILL_DIR>/src/main.py wechat-accounts add --name "名称" --fakeid <fakeid> [--alias alias]
+    注意：若 fakeid 已存在则更新名称，不重复添加
+
+  删除公众号: |
+    python <SKILL_DIR>/src/main.py wechat-accounts remove --fakeid <fakeid>
+
+  恢复默认列表: |
+    python <SKILL_DIR>/src/main.py wechat-accounts reset
+    （删除 .wechat_accounts.json，恢复内置 8 个默认公众号）
+
+  获取公众号文章: |
+    python <SKILL_DIR>/src/main.py wechat-articles <fakeid> [--count 10] [--begin 0]
+    fakeid 从列表或搜索中获取
+
+  抓取文章正文: |
+    python <SKILL_DIR>/src/main.py wechat-scrape "<文章链接>" [--output 文件路径]
+
+agent_intent_mapping:
+  - keywords: [北大公众号, pku公众号, 北大微信, 公众号列表]
+    action: list
+    command: "python <SKILL_DIR>/src/main.py wechat-accounts list"
+  - keywords: [添加公众号, 加个公众号, 订阅公众号]
+    action: add
+    command: "python <SKILL_DIR>/src/main.py wechat-accounts add --name <name> --fakeid <fakeid>"
+  - keywords: [删除公众号, 移除公众号]
+    action: remove
+    command: "python <SKILL_DIR>/src/main.py wechat-accounts remove --fakeid <fakeid>"
+  - keywords: [北大公众号文章, 北大最新推文, 公众号推送]
+    action: articles
+    flow: |
+      1. 运行 wechat-accounts list 获取 fakeid
+      2. 询问用户想看哪个公众号（或默认北京大学 fakeid=MzA3OTE0MjQzMw==）
+      3. 运行 wechat-articles <fakeid>
+
+exception_strategy: |
+  - 微信 token 过期（ret=200003）：提示用户运行 wechat-login 重新登录
+  - 请求频繁（ret=200013）：等待 60 秒后重试
+  - fakeid 不存在于列表：建议先用 wechat-search 搜索确认
+  - .wechat_accounts.json 损坏：运行 reset 恢复默认列表
